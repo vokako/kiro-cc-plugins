@@ -16,6 +16,8 @@ uvx kiro-cc-plugins --help
 uv tool install kiro-cc-plugins
 # Or with pip
 pip install kiro-cc-plugins
+# Or from GitHub
+uv tool install git+https://github.com/vokako/kiro-cc-plugins.git
 ```
 
 ## Quick Start

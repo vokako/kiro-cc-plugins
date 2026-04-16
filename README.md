@@ -7,11 +7,13 @@ Supports marketplace repos (like the [official Anthropic marketplace](https://gi
 ## Install
 
 ```bash
-# One-shot (no install needed)
-uvx --from git+https://github.com/anthropics/kiro-cc-plugins.git kiro-cc-plugins --help
+# Run directly without installing
+uvx kiro-cc-plugins --help
 
 # Or install permanently
-uv tool install git+https://github.com/anthropics/kiro-cc-plugins.git
+uv tool install kiro-cc-plugins
+# Or with pip
+pip install kiro-cc-plugins
 ```
 
 ## Quick Start
@@ -29,7 +31,7 @@ kiro-cc-plugins list
 # List all skills across sources
 kiro-cc-plugins list --skills
 
-# Install a plugin
+# Install a plugin (auto-detects which source)
 kiro-cc-plugins add feature-dev
 
 # Install to current project only
@@ -70,3 +72,12 @@ kiro-cc-plugins add --git https://github.com/user/my-cc-plugin
 | `.mcp.json` | `~/.kiro/agents/{plugin}-mcp.json` | MCP config → agent with mcpServers |
 
 Hooks and LSP configs are skipped (no Kiro equivalent). Existing agents with the same name are not overwritten.
+
+## Data Storage
+
+```
+~/.kiro/cc-plugins/
+├── config.json      # Registered sources
+├── registry.json    # Installed plugin tracking
+└── cache/           # Cloned git repos
+```

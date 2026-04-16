@@ -25,11 +25,15 @@ kiro-cc-plugins source add https://github.com/anthropics/claude-plugins-official
 # Add the Anthropic skills repo
 kiro-cc-plugins source add https://github.com/anthropics/skills.git
 
-# Browse available plugins
+# Browse all available plugins (merges all sources)
 kiro-cc-plugins list
 
-# List all skills across sources
+# List all skills or agents across sources
 kiro-cc-plugins list --skills
+kiro-cc-plugins list --agents
+
+# Show plugin details (shows install status and run commands)
+kiro-cc-plugins list feature-dev
 
 # Install a plugin (auto-detects which source)
 kiro-cc-plugins add feature-dev
@@ -42,6 +46,18 @@ kiro-cc-plugins add plugin-dev --only skill
 
 # Install from any git URL directly
 kiro-cc-plugins add --git https://github.com/user/my-cc-plugin
+
+# Update installed plugins (git pull + re-convert)
+kiro-cc-plugins update --all
+
+# Delete a plugin
+kiro-cc-plugins delete feature-dev
+```
+
+After installing agents, run them with:
+
+```bash
+kiro-cli chat --agent feature-dev
 ```
 
 ## Commands
@@ -52,15 +68,20 @@ kiro-cc-plugins add --git https://github.com/user/my-cc-plugin
 | `source list` | List registered sources |
 | `source update [name]` | Git pull sources |
 | `source remove <name>` | Remove a source |
-| `list [plugin]` | List available plugins or show plugin details |
-| `list --installed` | Show installed plugins |
+| `list` | List all plugins across all sources |
+| `list <plugin>` | Show plugin details, install status, and run commands |
+| `list --installed` | Show installed plugins only |
 | `list --skills` | List all skills across sources |
 | `list --agents` | List all agents across sources |
-| `add <name>` | Convert and install a plugin |
-| `add --all` | Install all local plugins |
+| `add <name>` | Install a plugin (auto-detects source) |
+| `add --all` | Install all locally available plugins |
+| `add --only skill,agent` | Install only specific component types |
 | `add --scope workspace` | Install to `.kiro/` instead of `~/.kiro/` |
-| `update [name] / --all` | Re-sync from source and re-convert |
-| `delete <name> / --all` | Remove converted plugins |
+| `add --git <url>` | Install directly from a git URL |
+| `update <name> / --all` | Git pull source and re-convert |
+| `update --only skill` | Re-convert only specific component types |
+| `delete <name> / --all` | Remove installed plugins |
+| `delete -y` | Skip confirmation prompt |
 
 ## Conversion Mapping
 
@@ -72,6 +93,15 @@ kiro-cc-plugins add --git https://github.com/user/my-cc-plugin
 | `.mcp.json` | `~/.kiro/agents/{plugin}-mcp.json` | MCP config → agent with mcpServers |
 
 Hooks and LSP configs are skipped (no Kiro equivalent). Existing agents with the same name are not overwritten.
+
+## Status Icons
+
+| Icon | Meaning |
+|---|---|
+| ✓ (green) | Installed |
+| ○ (green) | Available locally |
+| ○ (yellow) | Fetchable (external, auto-cloned on `add`) |
+| ✗ (red) | Not available |
 
 ## Data Storage
 

@@ -143,13 +143,30 @@ def list_cmd(plugin_name: str | None, source_name: str | None, installed: bool, 
         _list_installed(type_filter)
         return
 
-    source_name = _resolve_source(source_name)
-    plugins = src_mod.parse_marketplace(source_name)
+    # Collect plugins from specified source or all sources
+    if source_name:
+        all_plugins = src_mod.parse_marketplace(source_name)
+    elif plugin_name:
+        # Auto-find which source has this plugin
+        found = _find_plugin_source(plugin_name)
+        if found:
+            source_name, all_plugins = found
+        else:
+            source_name = _resolve_source(None)
+            all_plugins = src_mod.parse_marketplace(source_name)
+    else:
+        # Merge all sources
+        all_plugins = []
+        for s in src_mod.list_sources():
+            try:
+                all_plugins.extend(src_mod.parse_marketplace(s["name"]))
+            except FileNotFoundError:
+                continue
 
     if plugin_name:
-        _show_plugin_detail(source_name, plugins, plugin_name, type_filter)
+        _show_plugin_detail(source_name or "", all_plugins, plugin_name, type_filter)
     else:
-        _list_plugins(plugins, type_filter)
+        _list_plugins(all_plugins, type_filter)
 
 
 def _list_all_components(comp_type: str, source_name: str | None):
@@ -244,7 +261,9 @@ def _show_plugin_detail(source_name: str, plugins: list[dict], name: str, type_f
     if not plugin:
         raise click.ClickException(f"Plugin '{name}' not found")
 
-    console.print(f"\n[bold]{name}[/]")
+    installed = registry.get_installed_plugin(name)
+    status = " [green](installed)[/]" if installed else ""
+    console.print(f"\n[bold]{name}[/]{status}")
     console.print(f"  {plugin.get('description', '')}")
 
     local_path = plugin.get("_local_path")
@@ -275,6 +294,13 @@ def _show_plugin_detail(source_name: str, plugins: list[dict], name: str, type_f
         desc = c.frontmatter.get("description", "")[:50]
         t.add_row(c.type, c.name, desc)
     console.print(t)
+
+    if installed:
+        agents = [c for c in components if c.type in ("agent", "command")]
+        if agents:
+            console.print(f"\n[dim]Run with:[/]")
+            for a in agents:
+                console.print(f"  kiro-cli chat --agent {a.name}")
 
 
 # ── add ──────────────────────────────────────────────────────────────────
@@ -356,7 +382,7 @@ def add_cmd(plugin_name: str | None, source_name: str | None, install_all: bool,
                 total_components += 1
 
         if converted:
-            registry.add_installed(plugin["name"], source_name, converted, commit)
+            registry.add_installed(plugin["name"], source_name, converted, commit, scope)
             types_summary = ", ".join(sorted(set(c["type"] for c in converted)))
             console.print(f"  [green]✓[/] {plugin['name']} → {len(converted)} components ({types_summary})")
 
@@ -380,10 +406,18 @@ def delete_cmd(plugin_name: str | None, delete_all: bool):
         raise click.ClickException("Specify a plugin name or --all")
 
     for name in targets:
+        installed = registry.get_installed_plugin(name)
+        if not installed:
+            installed_names = [f"  {p['plugin_name']} (source: {p['source_name']})" for p in registry.get_installed()]
+            msg = f"Plugin '{name}' is not installed."
+            if installed_names:
+                msg += "\nInstalled plugins:\n" + "\n".join(installed_names)
+            raise click.ClickException(msg)
+        converter.set_scope(installed.get("scope", "global"))
         components = registry.remove_installed(name)
         for comp in components:
             converter.remove_converted(comp["target_path"])
-        console.print(f"  [green]✓[/] {name} removed ({len(components)} components)")
+        console.print(f"  [green]✓[/] {name} (source: {installed['source_name']}) removed ({len(components)} components)")
 
 
 # ── update ───────────────────────────────────────────────────────────────
@@ -391,8 +425,10 @@ def delete_cmd(plugin_name: str | None, delete_all: bool):
 @cli.command("update")
 @click.argument("plugin_name", required=False)
 @click.option("--all", "update_all", is_flag=True, help="Update all installed plugins")
-def update_cmd(plugin_name: str | None, update_all: bool):
+@click.option("--only", "only_types", default=None, help="Filter: skill,agent,command,mcp")
+def update_cmd(plugin_name: str | None, update_all: bool, only_types: str | None):
     """Re-sync from source and re-convert."""
+    type_filter = set(only_types.split(",")) if only_types else None
     installed = registry.get_installed()
     if update_all:
         targets = installed
@@ -416,6 +452,8 @@ def update_cmd(plugin_name: str | None, update_all: bool):
     # Re-convert
     for p in targets:
         sn = p["source_name"]
+        scope = p.get("scope", "global")
+        converter.set_scope(scope)
         plugins = src_mod.parse_marketplace(sn)
         plugin = next((pl for pl in plugins if pl["name"] == p["plugin_name"]), None)
         if not plugin or not plugin.get("_local_path"):
@@ -429,13 +467,19 @@ def update_cmd(plugin_name: str | None, update_all: bool):
         # Re-scan and convert
         local_path = Path(plugin["_local_path"])
         components = scanner.scan_plugin(local_path, plugin.get("_skill_filter"))
+        if type_filter:
+            components = [c for c in components if c.type in type_filter]
         commit = _get_commit(sn)
 
         converted = []
         for comp in components:
+            conflict = converter.check_conflict(comp.name, comp.type, p["plugin_name"], sn)
+            if conflict:
+                console.print(f"  [yellow]⚠ Skipping {comp.type}:{comp.name} — {conflict}[/]")
+                continue
             result = converter.convert_component(comp, p["plugin_name"], sn)
             if result:
                 converted.append(result)
 
-        registry.add_installed(p["plugin_name"], sn, converted, commit)
+        registry.add_installed(p["plugin_name"], sn, converted, commit, scope)
         console.print(f"  [green]✓[/] {p['plugin_name']} updated ({len(converted)} components)")

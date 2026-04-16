@@ -16,7 +16,7 @@ def _save(data: dict):
     save_json(REGISTRY_FILE, data)
 
 
-def add_installed(plugin_name: str, source_name: str, components: list[dict], commit: str):
+def add_installed(plugin_name: str, source_name: str, components: list[dict], commit: str, scope: str = "global"):
     reg = _load()
     reg["installed"] = [p for p in reg["installed"] if p["plugin_name"] != plugin_name]
     reg["installed"].append({
@@ -25,6 +25,7 @@ def add_installed(plugin_name: str, source_name: str, components: list[dict], co
         "components": components,
         "installed_at": datetime.now().isoformat(),
         "source_commit": commit,
+        "scope": scope,
     })
     _save(reg)
 

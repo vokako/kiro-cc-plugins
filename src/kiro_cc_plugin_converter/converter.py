@@ -209,5 +209,5 @@ def remove_converted(target_path: str):
         parent = p.parent
         p.unlink()
         # If this was a SKILL.md inside a skill dir, remove the whole dir
-        if parent.parent == KIRO_HOME / "skills":
+        if parent.parent.name == "skills":
             shutil.rmtree(parent, ignore_errors=True)

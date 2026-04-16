@@ -4,6 +4,8 @@ Install [Claude Code plugins](https://code.claude.com/docs/en/plugins) into [Kir
 
 Supports marketplace repos (like the [official Anthropic marketplace](https://github.com/anthropics/claude-plugins-official)) and standalone plugin/skill repos.
 
+https://github.com/user-attachments/assets/81dde49f-8632-4427-b6d5-9492d5da09b8
+
 ## Install
 
 ```bash

@@ -436,7 +436,7 @@ def delete_cmd(plugin_name: str | None, delete_all: bool, yes: bool):
         converter.set_scope(installed.get("scope", "global"))
         components = registry.remove_installed(name)
         for comp in components:
-            converter.remove_converted(comp["target_path"])
+            converter.remove_converted(comp["target_path"], comp.get("mcp_keys"))
         console.print(f"  [green]✓[/] {name} (source: {installed['source_name']}) removed ({len(components)} components)")
 
 
@@ -482,7 +482,7 @@ def update_cmd(plugin_name: str | None, update_all: bool, only_types: str | None
 
         # Remove old
         for comp in p.get("components", []):
-            converter.remove_converted(comp["target_path"])
+            converter.remove_converted(comp["target_path"], comp.get("mcp_keys"))
 
         # Re-scan and convert
         local_path = Path(plugin["_local_path"])

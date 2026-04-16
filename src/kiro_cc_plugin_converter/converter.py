@@ -50,11 +50,13 @@ def _is_our_skill(target_dir: Path) -> bool:
 
 def check_conflict(name: str, comp_type: str, plugin_name: str = "", source_name: str = "") -> str | None:
     """Return conflict message if target already exists and isn't ours. None if ok."""
-    if comp_type in ("agent", "command", "mcp"):
-        suffix = f"{name}-mcp" if comp_type == "mcp" else name
-        target = _kiro_agent_path(suffix)
+    if comp_type in ("agent", "command"):
+        target = _kiro_agent_path(name)
         if target.exists() and not _is_ours(target):
-            return f"Agent '{suffix}' already exists at {target}"
+            return f"Agent '{name}' already exists at {target}"
+    elif comp_type == "mcp":
+        # MCP keys are namespaced (cc--plugin--server), conflicts unlikely
+        pass
     elif comp_type == "skill":
         target = _kiro_skill_dir(name, plugin_name, source_name)
         if target.is_dir() and not _is_our_skill(target):
@@ -145,42 +147,57 @@ def convert_command(comp: ScannedComponent, plugin_name: str) -> dict:
     return convert_agent(comp, plugin_name)
 
 
-def convert_mcp(comp: ScannedComponent, plugin_name: str) -> dict:
+def _kiro_mcp_settings_path() -> Path:
+    return kiro_root(_scope) / "settings" / "mcp.json"
+
+
+def _mcp_server_key(server_name: str, plugin_name: str, source_name: str) -> str:
+    """Generate a namespaced key: cc:{plugin}:{server}."""
+    return f"cc-{plugin_name}-{server_name}"
+
+
+def convert_mcp(comp: ScannedComponent, plugin_name: str, source_name: str = "") -> dict:
     mcp_data = comp.frontmatter
-    mcp_name = f"{plugin_name}-mcp"
 
-    agent_config = {
-        "$schema": "https://raw.githubusercontent.com/aws/amazon-q-developer-cli/refs/heads/main/schemas/agent-v1.json",
-        "name": mcp_name,
-        "description": f"MCP servers [from cc:{plugin_name}]",
-        "prompt": None,
-        "mcpServers": {},
-        "tools": ["*"],
-        "allowedTools": [],
-        "resources": [],
-        "hooks": {},
-        "toolsSettings": {},
-    }
+    # Some .mcp.json files wrap servers in "mcpServers" key
+    if "mcpServers" in mcp_data and isinstance(mcp_data["mcpServers"], dict):
+        mcp_data = mcp_data["mcpServers"]
 
+    mcp_path = _kiro_mcp_settings_path()
+    mcp_path.parent.mkdir(parents=True, exist_ok=True)
+    settings = load_json(mcp_path, {"mcpServers": {}})
+    if "mcpServers" not in settings:
+        settings["mcpServers"] = {}
+
+    added_keys = []
     for server_name, server_config in mcp_data.items():
+        if not isinstance(server_config, dict):
+            continue
         kiro_server = {}
         stype = server_config.get("type", "")
         if stype in ("http", "streamable-http", "sse"):
             kiro_server["type"] = "streamable-http" if stype == "http" else stype
-            kiro_server["url"] = server_config.get("url", "")
-        elif stype == "stdio":
-            kiro_server["type"] = "stdio"
-            kiro_server["command"] = server_config.get("command", "")
-            if server_config.get("args"):
-                kiro_server["args"] = server_config["args"]
+            for key in ("url", "headers", "timeout"):
+                if key in server_config:
+                    kiro_server[key] = server_config[key]
         else:
-            kiro_server = server_config
-        agent_config["mcpServers"][server_name] = kiro_server
+            for key in ("command", "args", "env", "timeout"):
+                if key in server_config:
+                    kiro_server[key] = server_config[key]
 
-    target = _kiro_agent_path(mcp_name)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(agent_config, indent=2, ensure_ascii=False) + "\n")
-    return {"type": "mcp", "name": mcp_name, "source_rel": ".mcp.json", "target_path": str(target)}
+        full_key = _mcp_server_key(server_name, plugin_name, source_name)
+        settings["mcpServers"][full_key] = kiro_server
+        added_keys.append(full_key)
+
+    mcp_path.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    # target_path stores the mcp.json path + the keys we added (for removal)
+    return {
+        "type": "mcp",
+        "name": f"{plugin_name}-mcp",
+        "source_rel": ".mcp.json",
+        "target_path": str(mcp_path),
+        "mcp_keys": added_keys,
+    }
 
 
 CONVERTERS = {
@@ -194,15 +211,23 @@ CONVERTERS = {
 def convert_component(comp: ScannedComponent, plugin_name: str, source_name: str = "") -> dict | None:
     converter = CONVERTERS.get(comp.type)
     if converter:
-        if comp.type == "skill":
+        if comp.type in ("skill", "mcp"):
             return converter(comp, plugin_name, source_name)
         return converter(comp, plugin_name)
     return None
 
 
-def remove_converted(target_path: str):
-    """Remove a converted file/directory. For skills, remove the whole skill dir."""
+def remove_converted(target_path: str, mcp_keys: list[str] | None = None):
+    """Remove a converted file/directory. For MCP, remove keys from mcp.json. For skills, remove the whole skill dir."""
     p = Path(target_path)
+    if mcp_keys and p.name == "mcp.json":
+        # Remove specific keys from settings/mcp.json
+        if p.exists():
+            settings = load_json(p, {"mcpServers": {}})
+            for key in mcp_keys:
+                settings.get("mcpServers", {}).pop(key, None)
+            p.write_text(json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+        return
     if p.is_dir():
         shutil.rmtree(p)
     elif p.exists():

@@ -4,3 +4,9 @@ __pycache__/
 dist/
 build/
 uv.lock
+
+# GUI
+gui/node_modules/
+gui/build/
+gui/.svelte-kit/
+gui/src-tauri/target/

@@ -18,6 +18,12 @@ REGISTRY_FILE = CONVERTER_HOME / "registry.json"
 def kiro_root(scope: str = "global") -> Path:
     return KIRO_HOME if scope == "global" else KIRO_WORKSPACE
 
+
+def ensure_dirs():
+    """Create required directories if they don't exist."""
+    CONVERTER_HOME.mkdir(parents=True, exist_ok=True)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
 CC_PREFIX = ""
 
 

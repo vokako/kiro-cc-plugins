@@ -10,6 +10,7 @@ from rich.table import Table
 
 from . import source as src_mod
 from . import scanner, converter, registry
+from .models import ensure_dirs
 
 console = Console()
 
@@ -62,6 +63,7 @@ def _get_commit(source_name: str) -> str:
 @click.group()
 def cli():
     """Convert Claude Code plugins to Kiro format."""
+    ensure_dirs()
 
 
 @cli.group("source")

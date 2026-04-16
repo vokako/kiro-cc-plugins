@@ -428,8 +428,8 @@ def delete_cmd(plugin_name: str | None, delete_all: bool, yes: bool):
             raise click.ClickException(msg)
 
     if not yes:
-        names = ", ".join(targets)
-        click.confirm(f"Delete {names}?", abort=True)
+        details = ", ".join(f"{n} (source: {registry.get_installed_plugin(n)['source_name']})" for n in targets)
+        click.confirm(f"Delete {details}?", abort=True)
 
     for name in targets:
         installed = registry.get_installed_plugin(name)

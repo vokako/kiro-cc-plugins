@@ -389,6 +389,19 @@ def add_cmd(plugin_name: str | None, source_name: str | None, install_all: bool,
     target_dir = "~/.kiro/" if scope == "global" else ".kiro/"
     console.print(f"\n[green]Done.[/] {total_components} components installed to {target_dir}")
 
+    # Collect all agent names from this batch
+    all_agents = []
+    for plugin in targets:
+        p_installed = registry.get_installed_plugin(plugin["name"])
+        if p_installed:
+            for c in p_installed.get("components", []):
+                if c["type"] in ("agent", "command"):
+                    all_agents.append(c["name"])
+    if all_agents:
+        console.print(f"\n[dim]Run with:[/]")
+        for name in all_agents:
+            console.print(f"  kiro-cli chat --agent {name}")
+
 
 # ── delete ───────────────────────────────────────────────────────────────
 

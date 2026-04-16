@@ -408,8 +408,8 @@ def add_cmd(plugin_name: str | None, source_name: str | None, install_all: bool,
 @cli.command("delete")
 @click.argument("plugin_name", required=False)
 @click.option("--all", "delete_all", is_flag=True, help="Delete all installed plugins")
-@click.confirmation_option(prompt="Are you sure?")
-def delete_cmd(plugin_name: str | None, delete_all: bool):
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+def delete_cmd(plugin_name: str | None, delete_all: bool, yes: bool):
     """Remove converted plugins from ~/.kiro."""
     if delete_all:
         targets = [p["plugin_name"] for p in registry.get_installed()]
@@ -418,14 +418,20 @@ def delete_cmd(plugin_name: str | None, delete_all: bool):
     else:
         raise click.ClickException("Specify a plugin name or --all")
 
+    # Check all exist before confirming
     for name in targets:
-        installed = registry.get_installed_plugin(name)
-        if not installed:
+        if not registry.get_installed_plugin(name):
             installed_names = [f"  {p['plugin_name']} (source: {p['source_name']})" for p in registry.get_installed()]
             msg = f"Plugin '{name}' is not installed."
             if installed_names:
                 msg += "\nInstalled plugins:\n" + "\n".join(installed_names)
             raise click.ClickException(msg)
+
+    if not yes:
+        click.confirm(f"Delete {len(targets)} plugin(s)?", abort=True)
+
+    for name in targets:
+        installed = registry.get_installed_plugin(name)
         converter.set_scope(installed.get("scope", "global"))
         components = registry.remove_installed(name)
         for comp in components:

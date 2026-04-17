@@ -2,7 +2,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Parser, Subcommand};
-use comfy_table::{presets::UTF8_BORDERS_ONLY, Cell, Color, Table};
+use comfy_table::{presets::UTF8_BORDERS_ONLY, Cell, Color, ContentArrangement, Table};
 use console::style;
 use dialoguer::Confirm;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -15,6 +15,18 @@ use kiro_cc_core::{
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
+
+fn make_table() -> Table {
+    let mut t = Table::new();
+    t.load_preset(UTF8_BORDERS_ONLY)
+        .set_content_arrangement(ContentArrangement::Dynamic);
+    if let Some((w, _)) = term_size::dimensions() {
+        t.set_width(w as u16);
+    } else {
+        t.set_width(100);
+    }
+    t
+}
 
 #[derive(Parser)]
 #[command(name = "kiro-cc-plugins", version, about = "Convert Claude Code plugins to Kiro format")]
@@ -175,8 +187,7 @@ fn source_list() -> Result<()> {
         dim("No sources. Run: kiro-cc-plugins source add <url>");
         return Ok(());
     }
-    let mut t = Table::new();
-    t.load_preset(UTF8_BORDERS_ONLY);
+    let mut t = make_table();
     t.set_header(vec![Cell::new("Name").fg(Color::DarkGrey), Cell::new("URL").fg(Color::DarkGrey), Cell::new("Commit").fg(Color::DarkGrey)]);
     for s in sources {
         t.add_row(vec![
@@ -335,8 +346,7 @@ fn list_all_components(comp_type: &str, source_name: Option<&str>) -> Result<()>
         None => source::list_sources().into_iter().map(|s| s.name).collect(),
     };
 
-    let mut t = Table::new();
-    t.load_preset(UTF8_BORDERS_ONLY);
+    let mut t = make_table();
     t.set_header(vec!["Name", "Plugin", "Source", "Description", "Status"]);
     let mut total = 0usize;
 
@@ -355,13 +365,12 @@ fn list_all_components(comp_type: &str, source_name: Option<&str>) -> Result<()>
                     continue;
                 }
                 let status = if installed_targets.contains(&c.name) {
-                    style("✓").green().to_string()
+                    Cell::new("✓").fg(Color::Green)
                 } else {
-                    style("○").dim().to_string()
+                    Cell::new("○").fg(Color::DarkGrey)
                 };
-                let desc = c.frontmatter.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                let desc = desc.chars().take(45).collect::<String>();
-                t.add_row(vec![c.name, plugin.name.clone(), sn.clone(), desc, status]);
+                let desc = c.frontmatter.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                t.add_row(vec![Cell::new(c.name), Cell::new(&plugin.name), Cell::new(&sn), Cell::new(desc), status]);
                 total += 1;
             }
         }
@@ -377,8 +386,7 @@ fn list_installed(type_filter: &Option<HashSet<String>>) -> Result<()> {
         dim("No plugins installed.");
         return Ok(());
     }
-    let mut t = Table::new();
-    t.load_preset(UTF8_BORDERS_ONLY);
+    let mut t = make_table();
     t.set_header(vec!["Plugin", "Source", "Components", "Installed"]);
     for p in items {
         let comps: Vec<_> = p.components.iter().filter(|c| type_filter.as_ref().is_none_or(|f| f.contains(&c.component_type))).collect();
@@ -390,22 +398,21 @@ fn list_installed(type_filter: &Option<HashSet<String>>) -> Result<()> {
     Ok(())
 }
 
-fn plugin_status(p: &MarketplacePlugin, installed_names: &HashSet<String>) -> (String, String) {
+fn plugin_status(p: &MarketplacePlugin, installed_names: &HashSet<String>) -> (Cell, String) {
     if installed_names.contains(&p.name) {
-        (style("✓").green().to_string(), "installed".into())
+        (Cell::new("✓").fg(Color::Green), "installed".into())
     } else if p.local_path.as_ref().is_some_and(|lp| lp.is_dir()) {
-        (style("○").green().to_string(), "available".into())
+        (Cell::new("○").fg(Color::Green), "available".into())
     } else if p.source.is_object() {
-        (style("○").yellow().to_string(), "fetchable".into())
+        (Cell::new("○").fg(Color::Yellow), "fetchable".into())
     } else {
-        (style("✗").red().to_string(), "unavailable".into())
+        (Cell::new("✗").fg(Color::Red), "unavailable".into())
     }
 }
 
 fn list_plugins(plugins: &[MarketplacePlugin], _type_filter: &Option<HashSet<String>>) -> Result<()> {
     let installed_names: HashSet<String> = registry::get_installed().into_iter().map(|p| p.plugin_name).collect();
-    let mut t = Table::new();
-    t.load_preset(UTF8_BORDERS_ONLY);
+    let mut t = make_table();
     t.set_header(vec!["Name", "Description", "Category", "Status"]);
     let mut n_installed = 0;
     let mut n_local = 0;
@@ -418,8 +425,7 @@ fn list_plugins(plugins: &[MarketplacePlugin], _type_filter: &Option<HashSet<Str
             "fetchable" => n_fetch += 1,
             _ => {}
         }
-        let desc = p.description.chars().take(60).collect::<String>();
-        t.add_row(vec![p.name.clone(), desc, p.category.clone(), icon]);
+        t.add_row(vec![Cell::new(&p.name), Cell::new(&p.description), Cell::new(&p.category), icon]);
     }
     println!("{t}");
     dim(format!(
@@ -466,12 +472,11 @@ fn show_plugin_detail(
         dim("  No convertible components found.");
         return Ok(());
     }
-    let mut t = Table::new();
-    t.load_preset(UTF8_BORDERS_ONLY);
+    let mut t = make_table();
     t.set_header(vec!["Type", "Name", "Description"]);
     for c in &components {
         let desc = c.frontmatter.get("description").and_then(|v| v.as_str()).unwrap_or("");
-        t.add_row(vec![c.component_type.clone(), c.name.clone(), desc.chars().take(50).collect()]);
+        t.add_row(vec![c.component_type.clone(), c.name.clone(), desc.to_string()]);
     }
     println!("{t}");
 

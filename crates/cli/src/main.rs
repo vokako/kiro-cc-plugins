@@ -87,6 +87,31 @@ enum Cmd {
         #[arg(long)]
         only: Option<String>,
     },
+    /// Enable components of an installed plugin (or a specific component)
+    Enable {
+        /// Plugin name (applies to all its components unless --component given)
+        plugin: String,
+        /// Specific component name (e.g. skill name)
+        #[arg(long)]
+        component: Option<String>,
+        /// Only enable components of given types (skill,agent,command,mcp)
+        #[arg(long)]
+        only: Option<String>,
+    },
+    /// Disable components of an installed plugin (or a specific component)
+    Disable {
+        plugin: String,
+        #[arg(long)]
+        component: Option<String>,
+        #[arg(long)]
+        only: Option<String>,
+    },
+    /// Internal JSON API for the desktop app (hidden)
+    #[command(hide = true)]
+    Api {
+        /// JSON request string: {"command":"...","args":{...}}
+        request: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -137,6 +162,9 @@ fn run() -> Result<()> {
         }
         Cmd::Delete { plugin, delete_all, yes } => delete_cmd(plugin.as_deref(), delete_all, yes),
         Cmd::Update { plugin, update_all, only } => update_cmd(plugin.as_deref(), update_all, only.as_deref()),
+        Cmd::Enable { plugin, component, only } => toggle_cmd(&plugin, component.as_deref(), only.as_deref(), true),
+        Cmd::Disable { plugin, component, only } => toggle_cmd(&plugin, component.as_deref(), only.as_deref(), false),
+        Cmd::Api { request } => api_cmd(&request),
     }
 }
 
@@ -717,5 +745,45 @@ fn update_cmd(plugin_name: Option<&str>, update_all: bool, only: Option<&str>) -
         registry::add_installed(&p.plugin_name, &p.source_name, converted.clone(), &commit, &p.scope).map_err(|e| anyhow!("{e}"))?;
         ok(format!("{} updated ({} components)", p.plugin_name, converted.len()));
     }
+    Ok(())
+}
+
+
+// ── enable/disable ───────────────────────────────────────────────────────
+
+fn toggle_cmd(plugin_name: &str, component_name: Option<&str>, only: Option<&str>, enable: bool) -> Result<()> {
+    let type_filter = parse_only(only);
+    let installed = registry::get_installed_plugin(plugin_name)
+        .ok_or_else(|| anyhow!("Plugin '{plugin_name}' is not installed"))?;
+    converter::set_scope(models::Scope::from_str(&installed.scope));
+
+    let mut touched = 0usize;
+    for c in &installed.components {
+        if let Some(name) = component_name {
+            if c.name != name { continue; }
+        }
+        if let Some(f) = &type_filter {
+            if !f.contains(&c.component_type) { continue; }
+        }
+        converter::set_component_enabled(&c.component_type, &c.target_path, c.mcp_keys.as_deref(), enable)
+            .map_err(|e| anyhow!("{e}"))?;
+        let verb = if enable { "enabled" } else { "disabled" };
+        ok(format!("{} {}:{} {verb}", plugin_name, c.component_type, c.name));
+        touched += 1;
+    }
+    if touched == 0 {
+        warn(format!("No matching components in {plugin_name}"));
+    }
+    Ok(())
+}
+
+
+// ── api (JSON mode for GUI) ──────────────────────────────────────────────
+
+fn api_cmd(request_json: &str) -> Result<()> {
+    let request: serde_json::Value = serde_json::from_str(request_json)
+        .map_err(|e| anyhow!("invalid JSON: {e}"))?;
+    let result = kiro_cc_core::api::dispatch(&request);
+    println!("{}", serde_json::to_string(&result)?);
     Ok(())
 }

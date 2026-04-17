@@ -1,11 +1,13 @@
 <script>
   import { api } from "$lib/api.js";
+  import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 
-  let { onsourceChange } = $props();
+  let { onsourceChange, openSource } = $props();
   let sources = $state([]);
   let newUrl = $state("");
   let loading = $state(false);
   let error = $state(null);
+  let message = $state(null);
 
   async function load() {
     loading = true;
@@ -23,8 +25,10 @@
     if (!newUrl.trim()) return;
     loading = true;
     error = null;
+    message = null;
     try {
       await api.sources.add(newUrl.trim());
+      message = "Source added";
       newUrl = "";
       await load();
       onsourceChange?.();
@@ -36,9 +40,10 @@
   }
 
   async function removeSource(name) {
-    if (!confirm(`Remove source "${name}"?`)) return;
+    if (!(await tauriConfirm(`Remove source "${name}"?`, { title: "Confirm Remove", kind: "warning" }))) return;
     loading = true;
     error = null;
+    message = null;
     try {
       await api.sources.remove(name);
       await load();
@@ -53,8 +58,10 @@
   async function updateSource(name) {
     loading = true;
     error = null;
+    message = null;
     try {
       await api.sources.update(name);
+      message = `${name} updated`;
       await load();
     } catch (e) {
       error = e.message;
@@ -95,6 +102,11 @@
       <span class="toast-icon">✗</span> {error}
     </div>
   {/if}
+  {#if message}
+    <div class="toast success">
+      <span class="toast-icon">✓</span> {message}
+    </div>
+  {/if}
 
   {#if loading && sources.length === 0}
     <div class="empty">
@@ -109,7 +121,14 @@
   {:else}
     <div class="source-grid">
       {#each sources as s, i}
-        <div class="source-card" style="animation-delay: {i * 50}ms">
+        <div
+          class="source-card"
+          style="animation-delay: {i * 50}ms"
+          role="button"
+          tabindex="0"
+          onclick={() => openSource?.(s.name)}
+          onkeydown={(e) => (e.key === "Enter" || e.key === " ") && openSource?.(s.name)}
+        >
           <div class="card-header">
             <span class="source-icon">⬡</span>
             <span class="source-name">{s.name}</span>
@@ -123,8 +142,8 @@
               {(s.commit || "").slice(0, 8)}
             </span>
             <div class="card-actions">
-              <button class="btn-ghost" onclick={() => updateSource(s.name)} disabled={loading} title="Pull latest">↻</button>
-              <button class="btn-ghost btn-danger" onclick={() => removeSource(s.name)} disabled={loading} title="Remove">✕</button>
+              <button class="btn-ghost" onclick={(e) => { e.stopPropagation(); updateSource(s.name); }} disabled={loading} title="Pull latest">↻</button>
+              <button class="btn-ghost btn-danger" onclick={(e) => { e.stopPropagation(); removeSource(s.name); }} disabled={loading} title="Remove">✕</button>
             </div>
           </div>
         </div>
@@ -242,6 +261,12 @@
     color: var(--red);
   }
 
+  .toast.success {
+    background: rgba(64, 192, 96, 0.1);
+    border: 1px solid rgba(64, 192, 96, 0.3);
+    color: var(--green);
+  }
+
   .toast-icon {
     font-weight: 700;
   }
@@ -296,6 +321,7 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 14px 16px;
+    cursor: pointer;
     transition: border-color 0.2s, box-shadow 0.2s;
     animation: fadeUp 0.3s ease-out both;
   }

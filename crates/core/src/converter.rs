@@ -37,6 +37,95 @@ pub fn kiro_skill_dir(name: &str, plugin_name: &str, source_name: &str) -> PathB
         .join(format!("{safe_source}--{plugin_name}--{name}"))
 }
 
+/// Directory where disabled skills are parked.
+pub fn disabled_skills_dir() -> PathBuf {
+    crate::models::converter_home().join("disabled-skills")
+}
+
+pub fn disabled_agents_dir() -> PathBuf {
+    crate::models::converter_home().join("disabled-agents")
+}
+
+/// Returns whether a converted component is currently enabled.
+pub fn is_component_enabled(comp_type: &str, target_path: &str, mcp_keys: Option<&[String]>) -> bool {
+    match comp_type {
+        "skill" | "agent" | "command" => PathBuf::from(target_path).exists(),
+        "mcp" => {
+            let Some(keys) = mcp_keys else { return true };
+            let p = PathBuf::from(target_path);
+            if !p.exists() { return false; }
+            let Ok(text) = std::fs::read_to_string(&p) else { return false };
+            let Ok(v): std::result::Result<Value, _> = serde_json::from_str(&text) else { return false };
+            let servers = v.get("mcpServers").and_then(|x| x.as_object());
+            keys.iter().any(|k| {
+                servers.and_then(|m| m.get(k))
+                    .and_then(|s| s.get("disabled"))
+                    .and_then(|d| d.as_bool())
+                    .map(|d| !d)
+                    .unwrap_or(true)
+            })
+        }
+        _ => true,
+    }
+}
+
+pub fn set_component_enabled(comp_type: &str, target_path: &str, mcp_keys: Option<&[String]>, enable: bool) -> Result<()> {
+    match comp_type {
+        "skill" => set_dir_enabled(target_path, &disabled_skills_dir(), enable),
+        "agent" | "command" => set_file_enabled(target_path, &disabled_agents_dir(), enable),
+        "mcp" => {
+            let Some(keys) = mcp_keys else { return Ok(()); };
+            let p = PathBuf::from(target_path);
+            if !p.exists() { return Ok(()); }
+            let mut v: Value = serde_json::from_str(&std::fs::read_to_string(&p)?).unwrap_or(json!({"mcpServers": {}}));
+            if let Some(m) = v.get_mut("mcpServers").and_then(|x| x.as_object_mut()) {
+                for k in keys {
+                    if let Some(server) = m.get_mut(k).and_then(|s| s.as_object_mut()) {
+                        if enable { server.remove("disabled"); }
+                        else { server.insert("disabled".into(), Value::Bool(true)); }
+                    }
+                }
+            }
+            write_json_file(&p, &v)?;
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn set_dir_enabled(target_path: &str, parked_root: &Path, enable: bool) -> Result<()> {
+    let active = PathBuf::from(target_path);
+    let skill_dir = active.parent().ok_or_else(|| Error::msg("no parent"))?;
+    let dir_name = skill_dir.file_name().and_then(|n| n.to_str()).ok_or_else(|| Error::msg("no dir name"))?;
+    let parked = parked_root.join(dir_name);
+    std::fs::create_dir_all(parked_root)?;
+    if enable {
+        if skill_dir.is_dir() { return Ok(()); }
+        if parked.is_dir() { std::fs::rename(&parked, skill_dir)?; }
+    } else {
+        if !skill_dir.is_dir() { return Ok(()); }
+        if parked.exists() { std::fs::remove_dir_all(&parked)?; }
+        std::fs::rename(skill_dir, &parked)?;
+    }
+    Ok(())
+}
+
+fn set_file_enabled(target_path: &str, parked_root: &Path, enable: bool) -> Result<()> {
+    let active = PathBuf::from(target_path);
+    let file_name = active.file_name().and_then(|n| n.to_str()).ok_or_else(|| Error::msg("no file"))?;
+    let parked = parked_root.join(file_name);
+    std::fs::create_dir_all(parked_root)?;
+    if enable {
+        if active.exists() { return Ok(()); }
+        if parked.exists() { std::fs::rename(&parked, &active)?; }
+    } else {
+        if !active.exists() { return Ok(()); }
+        if parked.exists() { std::fs::remove_file(&parked)?; }
+        std::fs::rename(&active, &parked)?;
+    }
+    Ok(())
+}
+
 pub fn kiro_mcp_settings_path() -> PathBuf {
     kiro_root(get_scope()).join("settings").join("mcp.json")
 }
@@ -210,9 +299,9 @@ pub fn convert_agent(
 
     if let Some(model) = fm.get("model").and_then(|v| v.as_str()) {
         let mapped = match model {
-            "opus" => "claude-opus-4",
-            "sonnet" => "claude-sonnet-4",
-            "haiku" => "claude-haiku-3.5",
+            "opus" => "claude-opus-4.7",
+            "sonnet" => "claude-sonnet-4.6",
+            "haiku" => "claude-haiku-4.5",
             other => other,
         };
         cfg.insert("model".into(), Value::String(mapped.into()));

@@ -1,12 +1,16 @@
 <script>
+  import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
   import Sources from "$lib/Sources.svelte";
   import Plugins from "$lib/Plugins.svelte";
   import Installed from "$lib/Installed.svelte";
 
   let tab = $state("plugins");
-  let scope = $state("global");
+  let version = $state("");
   let pluginsRef = $state(null);
   let installedRef = $state(null);
+  let jumpTo = $state(null);
+  let initialSource = $state(null);
 
   function onSourceChange() {
     pluginsRef?.load();
@@ -16,6 +20,28 @@
     if (tab === "plugins") pluginsRef?.load();
     else if (tab === "installed") installedRef?.load();
   }
+
+  function openPlugin(name) {
+    jumpTo = name;
+    tab = "plugins";
+  }
+
+  function openSource(sourceName) {
+    initialSource = sourceName;
+    tab = "plugins";
+  }
+
+  let zoomLevel = 1;
+
+  onMount(async () => {
+    try { version = await invoke("app_version"); } catch (_) {}
+    window.addEventListener("keydown", (e) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === "=" || e.key === "+") { e.preventDefault(); zoomLevel = Math.min(2, zoomLevel + 0.1); document.body.style.zoom = zoomLevel; }
+      else if (e.key === "-") { e.preventDefault(); zoomLevel = Math.max(0.5, zoomLevel - 0.1); document.body.style.zoom = zoomLevel; }
+      else if (e.key === "0") { e.preventDefault(); zoomLevel = 1; document.body.style.zoom = 1; }
+    });
+  });
 </script>
 
 <div class="app">
@@ -23,7 +49,7 @@
     <div class="brand">
       <span class="logo">⬡</span>
       <span class="title">KIRO <span class="accent">CC PLUGINS</span></span>
-      <span class="version">v0.1</span>
+      {#if version}<span class="version">v{version}</span>{/if}
     </div>
     <nav>
       <button class:active={tab === "plugins"} onclick={() => (tab = "plugins")}>
@@ -38,29 +64,31 @@
     </nav>
     <div class="header-right">
       <button class="refresh-btn" onclick={refresh} title="Refresh">↻</button>
-      <div class="scope-switch">
-        <span class="scope-label">SCOPE</span>
-        <select bind:value={scope}>
-          <option value="global">~/.kiro (global)</option>
-          <option value="workspace">.kiro (workspace)</option>
-        </select>
-      </div>
     </div>
   </header>
 
   <main>
     {#if tab === "plugins"}
-      <Plugins bind:this={pluginsRef} {scope} />
+      <Plugins bind:this={pluginsRef} bind:jumpTo bind:initialSource />
     {:else if tab === "installed"}
-      <Installed bind:this={installedRef} {scope} />
+      <Installed bind:this={installedRef} {openPlugin} />
     {:else}
-      <Sources onsourceChange={onSourceChange} />
+      <Sources onsourceChange={onSourceChange} {openSource} />
     {/if}
   </main>
 
   <footer>
     <span class="status-dot"></span>
-    <span>SYSTEM READY</span>
+    <span>READY</span>
+    {#if tab === "plugins" && pluginsRef}
+      {@const s = pluginsRef.getStats?.() || {}}
+      {#if s.total}
+        <span class="footer-sep">│</span>
+        <span>{s.showing}/{s.total} plugins</span>
+        <span class="footer-sep">│</span>
+        <span>{s.installed} installed</span>
+      {/if}
+    {/if}
   </footer>
 </div>
 
@@ -221,6 +249,9 @@
   }
 
   nav {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     gap: 2px;
     -webkit-app-region: no-drag;
@@ -285,26 +316,6 @@
     transform: rotate(180deg);
   }
 
-  .scope-switch {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .scope-label {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: 0.15em;
-    color: var(--text-dim);
-  }
-
-  .scope-switch select {
-    font-size: 11px;
-    padding: 4px 8px;
-    background: var(--bg-raised);
-  }
-
   main {
     flex: 1;
     overflow: hidden;
@@ -331,5 +342,10 @@
     background: var(--green);
     box-shadow: 0 0 6px var(--green-dim);
     animation: pulse 2s ease-in-out infinite;
+  }
+
+  .footer-sep {
+    opacity: 0.3;
+    margin: 0 4px;
   }
 </style>

@@ -7,3 +7,5 @@ gui/node_modules/
 gui/build/
 gui/.svelte-kit/
 gui/src-tauri/target/
+scripts/
+dist/

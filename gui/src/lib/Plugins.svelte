@@ -1,11 +1,15 @@
 <script>
   import { api } from "$lib/api.js";
+  import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 
-  let { scope = "global" } = $props();
+  let { scope = "global", jumpTo = $bindable(null), initialSource = $bindable(null) } = $props();
   let plugins = $state([]);
   let selected = $state(null);
   let detail = $state(null);
   let search = $state("");
+  let statusFilter = $state("all"); // all | installed | available
+  let sourceFilter = $state("");
+  let sources = $state([]);
   let loading = $state(false);
   let actionLoading = $state(false);
   let error = $state(null);
@@ -16,20 +20,38 @@
   const TYPE_COLORS = { skill: "#40c0c0", agent: "#8644f0", command: "#f0a030", mcp: "#40c060" };
 
   let filtered = $derived(
-    plugins.filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.description || "").toLowerCase().includes(search.toLowerCase()))
+    plugins.filter((p) => {
+      if (search && !p.name.toLowerCase().includes(search.toLowerCase()) && !(p.description || "").toLowerCase().includes(search.toLowerCase())) return false;
+      if (statusFilter === "installed" && p.status !== "installed") return false;
+      if (statusFilter === "available" && p.status !== "available" && p.status !== "fetchable") return false;
+      if (sourceFilter && p.source_name !== sourceFilter) return false;
+      return true;
+    })
   );
 
   let stats = $derived({
     total: plugins.length,
     installed: plugins.filter(p => p.status === "installed").length,
-    available: plugins.filter(p => p.status === "available").length,
+    showing: filtered.length,
   });
+
+  export function getStats() { return stats; }
 
   export async function load() {
     loading = true;
     error = null;
     try {
       plugins = await api.plugins.list();
+      sources = await api.sources.list();
+      if (initialSource) {
+        sourceFilter = initialSource;
+        initialSource = null;
+      }
+      if (jumpTo) {
+        const name = jumpTo;
+        jumpTo = null;
+        await showDetail(name);
+      }
     } catch (e) {
       error = e.message;
     } finally {
@@ -65,7 +87,7 @@
   }
 
   async function remove(name) {
-    if (!confirm(`Delete plugin "${name}"?`)) return;
+    if (!(await tauriConfirm(`Delete plugin "${name}"?`, { title: "Confirm Delete", kind: "warning" }))) return;
     actionLoading = true;
     message = null;
     error = null;
@@ -98,6 +120,32 @@
   }
 
   load();
+
+  async function toggleComponent(pluginName, componentName, enable) {
+    actionLoading = true;
+    error = null;
+    try {
+      await api.plugins.toggle(pluginName, { component: componentName, enable });
+      if (selected) await showDetail(selected);
+    } catch (e) {
+      error = e.message;
+    } finally {
+      actionLoading = false;
+    }
+  }
+
+  async function toggleAll(pluginName, enable) {
+    actionLoading = true;
+    error = null;
+    try {
+      await api.plugins.toggle(pluginName, { enable });
+      if (selected) await showDetail(selected);
+    } catch (e) {
+      error = e.message;
+    } finally {
+      actionLoading = false;
+    }
+  }
 </script>
 
 <section class="layout">
@@ -105,16 +153,27 @@
   <div class="list-panel">
     <div class="list-header">
       <h2><span class="hm">▸</span> REGISTRY</h2>
-      <div class="stats">
-        <span class="stat"><span class="st-installed">●</span> {stats.installed}</span>
-        <span class="stat"><span class="st-available">○</span> {stats.available}</span>
-        <span class="stat-total">{stats.total}</span>
-      </div>
+      <label class="toggle">
+        <span class="toggle-label">{statusFilter === "installed" ? "Installed" : "All"}</span>
+        <input type="checkbox" checked={statusFilter === "installed"} onchange={(e) => statusFilter = e.target.checked ? "installed" : "all"} />
+        <span class="toggle-track">
+          <span class="toggle-thumb"></span>
+        </span>
+      </label>
     </div>
 
     <div class="search-wrap">
       <span class="search-icon">⌕</span>
       <input bind:value={search} placeholder="Filter..." />
+    </div>
+
+    <div class="filters">
+      <select bind:value={sourceFilter} class="filter-select">
+        <option value="">All sources</option>
+        {#each sources as s}
+          <option value={s.name}>{s.name}</option>
+        {/each}
+      </select>
     </div>
 
     {#if error}
@@ -179,9 +238,8 @@
 
         <div class="detail-actions">
           {#if detail.installed}
-            <button class="btn-action" onclick={() => update(detail.name)} disabled={actionLoading}>
-              ↻ UPDATE
-            </button>
+            <button class="btn-action" onclick={() => toggleAll(detail.name, true)} disabled={actionLoading}>✓ ENABLE ALL</button>
+            <button class="btn-action" onclick={() => toggleAll(detail.name, false)} disabled={actionLoading}>✗ DISABLE ALL</button>
             <button class="btn-action btn-del" onclick={() => remove(detail.name)} disabled={actionLoading}>
               ✕ DELETE
             </button>
@@ -197,9 +255,20 @@
             <h4><span class="hm">▸</span> COMPONENTS <span class="comp-count">{detail.components.length}</span></h4>
             <div class="comp-grid">
               {#each detail.components as c, i}
-                <div class="comp-card" style="animation-delay: {i * 40}ms">
-                  <div class="comp-type" style="color: {TYPE_COLORS[c.type] || 'var(--text-dim)'}">
-                    {c.type}
+                <div class="comp-card" class:comp-off={c.enabled === false} style="animation-delay: {i * 40}ms">
+                  <div class="comp-card-header">
+                    <div class="comp-type" style="color: {TYPE_COLORS[c.type] || 'var(--text-dim)'}">
+                      {c.type}
+                    </div>
+                    {#if c.enabled !== undefined}
+                      <button
+                        class="comp-toggle"
+                        class:comp-toggle-on={c.enabled !== false}
+                        onclick={() => toggleComponent(detail.name, c.name, c.enabled === false)}
+                        disabled={actionLoading}
+                        title={c.enabled === false ? "Enable" : "Disable"}
+                      >{c.enabled === false ? "OFF" : "ON"}</button>
+                    {/if}
                   </div>
                   <div class="comp-name">{c.name}</div>
                   {#if c.description}
@@ -262,26 +331,49 @@
 
   .hm { color: var(--amber); }
 
-  .stats {
-    display: flex;
-    gap: 10px;
-    font-family: "JetBrains Mono", monospace;
-    font-size: 10px;
-  }
-
-  .stat {
+  .toggle {
     display: flex;
     align-items: center;
-    gap: 4px;
-    color: var(--text-dim);
+    gap: 6px;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
   }
 
-  .stat-total {
-    color: var(--text-dim);
-    background: var(--bg-surface);
-    padding: 1px 6px;
-    border-radius: 3px;
+  .toggle input { display: none; }
+
+  .toggle-track {
+    width: 28px;
+    height: 14px;
+    background: var(--border);
+    border-radius: 7px;
+    position: relative;
+    transition: background 0.2s;
+  }
+
+  .toggle input:checked + .toggle-track {
+    background: var(--amber);
+  }
+
+  .toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 10px;
+    height: 10px;
+    background: var(--text-bright);
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+
+  .toggle input:checked + .toggle-track .toggle-thumb {
+    transform: translateX(14px);
+  }
+
+  .toggle-label {
+    font-family: "JetBrains Mono", monospace;
     font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
   }
 
   .search-wrap {
@@ -292,6 +384,20 @@
     border: 1px solid var(--border);
     border-radius: 3px;
     transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .filters {
+    display: flex;
+    gap: 6px;
+    margin: 0 12px 10px;
+  }
+
+  .filter-select {
+    flex: 1;
+    font-size: 11px;
+    padding: 5px 8px;
+    min-width: 0;
+    background: var(--bg-raised);
   }
 
   .search-wrap:focus-within {
@@ -609,6 +715,37 @@
   }
 
   .comp-card:hover {
+    border-color: var(--border-bright);
+  }
+
+  .comp-off {
+    opacity: 0.4;
+  }
+
+  .comp-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .comp-toggle {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-dim);
+    border-radius: 2px;
+  }
+
+  .comp-toggle-on {
+    color: var(--green);
+    border-color: var(--green-dim);
+  }
+
+  .comp-toggle:hover {
     border-color: var(--border-bright);
   }
 

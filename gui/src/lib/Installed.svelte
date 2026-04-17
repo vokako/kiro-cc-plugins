@@ -1,7 +1,8 @@
 <script>
   import { api } from "$lib/api.js";
+  import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
 
-  let { scope = "global" } = $props();
+  let { scope = "global", openPlugin } = $props();
   let installed = $state([]);
   let loading = $state(false);
   let actionLoading = $state(null);
@@ -36,7 +37,7 @@
   }
 
   async function remove(name) {
-    if (!confirm(`Delete plugin "${name}"?`)) return;
+    if (!(await tauriConfirm(`Delete plugin "${name}"?`, { title: "Confirm Delete", kind: "warning" }))) return;
     actionLoading = name;
     message = null;
     error = null;
@@ -66,17 +67,39 @@
     }
   }
 
+  async function toggleComponent(pluginName, componentName, enable) {
+    actionLoading = pluginName;
+    error = null;
+    try {
+      await api.plugins.toggle(pluginName, { component: componentName, enable });
+      await load();
+    } catch (e) {
+      error = e.message;
+    } finally {
+      actionLoading = null;
+    }
+  }
+
+  async function toggleAll(pluginName, enable) {
+    actionLoading = pluginName;
+    error = null;
+    try {
+      await api.plugins.toggle(pluginName, { enable });
+      message = `${pluginName} ${enable ? "enabled" : "disabled"} (all components)`;
+      await load();
+    } catch (e) {
+      error = e.message;
+    } finally {
+      actionLoading = null;
+    }
+  }
+
   load();
 </script>
 
 <section>
   <div class="section-header">
     <h2><span class="hm">▸</span> INSTALLED <span class="count">{installed.length}</span></h2>
-    <div class="header-actions">
-      <button class="btn-ghost" onclick={updateAll} disabled={actionLoading} title="Update all">
-        ↻ UPDATE ALL
-      </button>
-    </div>
   </div>
 
   {#if error}
@@ -97,7 +120,14 @@
   {:else}
     <div class="grid">
       {#each installed as p, i}
-        <div class="card" style="animation-delay: {i * 40}ms">
+        <div
+          class="card"
+          style="animation-delay: {i * 40}ms"
+          role="button"
+          tabindex="0"
+          onclick={() => openPlugin?.(p.plugin_name)}
+          onkeydown={(e) => (e.key === "Enter" || e.key === " ") && openPlugin?.(p.plugin_name)}
+        >
           <div class="card-top">
             <div class="card-title">
               <span class="dot"></span>
@@ -108,9 +138,18 @@
 
           <div class="comp-list">
             {#each p.components || [] as c}
-              <span class="comp" class:comp-skill={c.type === "skill"} class:comp-agent={c.type === "agent" || c.type === "command"} class:comp-mcp={c.type === "mcp"}>
-                {c.type}:{c.name}
-              </span>
+              <button
+                class="comp"
+                class:comp-skill={c.type === "skill"}
+                class:comp-agent={c.type === "agent" || c.type === "command"}
+                class:comp-mcp={c.type === "mcp"}
+                class:comp-disabled={c.enabled === false}
+                onclick={(e) => { e.stopPropagation(); toggleComponent(p.plugin_name, c.name, c.enabled === false); }}
+                disabled={actionLoading}
+                title={c.enabled === false ? "Click to enable" : "Click to disable"}
+              >
+                {c.enabled === false ? "✗" : "✓"} {c.type}:{c.name}
+              </button>
             {/each}
           </div>
 
@@ -118,8 +157,9 @@
             <span class="date">{(p.installed_at || "").slice(0, 10)}</span>
             <span class="scope-badge">{p.scope || "global"}</span>
             <div class="card-actions">
-              <button class="btn-sm" onclick={() => update(p.plugin_name)} disabled={actionLoading}>↻</button>
-              <button class="btn-sm btn-del" onclick={() => remove(p.plugin_name)} disabled={actionLoading}>✕</button>
+              <button class="btn-sm" onclick={(e) => { e.stopPropagation(); toggleAll(p.plugin_name, true); }} disabled={actionLoading} title="Enable all">✓✓</button>
+              <button class="btn-sm" onclick={(e) => { e.stopPropagation(); toggleAll(p.plugin_name, false); }} disabled={actionLoading} title="Disable all">✗✗</button>
+              <button class="btn-sm btn-del" onclick={(e) => { e.stopPropagation(); remove(p.plugin_name); }} disabled={actionLoading}>✕</button>
             </div>
           </div>
         </div>
@@ -226,6 +266,7 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 14px 16px;
+    cursor: pointer;
     transition: border-color 0.2s;
     animation: fadeUp 0.25s ease-out both;
   }
@@ -296,6 +337,17 @@
     background: var(--bg-surface);
     border: 1px solid var(--border);
     color: var(--text-dim);
+    cursor: pointer;
+  }
+
+  .comp:hover {
+    background: var(--bg-raised);
+    border-color: var(--border-bright);
+  }
+
+  .comp-disabled {
+    opacity: 0.4;
+    text-decoration: line-through;
   }
 
   .comp-skill { color: var(--cyan); border-color: rgba(64, 192, 192, 0.2); }

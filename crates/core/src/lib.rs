@@ -7,5 +7,6 @@ pub mod source;
 pub mod scanner;
 pub mod converter;
 pub mod registry;
+pub mod api;
 
 pub use models::{Scope, Source, InstalledPlugin, ComponentRecord, Error, Result};

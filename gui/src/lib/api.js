@@ -23,5 +23,6 @@ export const api = {
     add: (name, opts = {}) => callApi("plugin.add", { name, ...opts }),
     delete: (name) => callApi("plugin.delete", { name }),
     update: (name) => callApi("plugin.update", name ? { name } : { all: true }),
+    toggle: (name, { component, only_types, enable }) => callApi("plugin.toggle", { name, component, only_types, enable }),
   },
 };

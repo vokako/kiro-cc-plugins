@@ -583,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "kiro-cc-plugins"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -598,7 +598,7 @@ dependencies = [
 
 [[package]]
 name = "kiro_cc_core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "chrono",

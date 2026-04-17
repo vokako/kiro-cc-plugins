@@ -23,8 +23,9 @@ fn external_cache() -> PathBuf {
 
 fn git_head(repo_dir: &Path) -> Result<String> {
     let repo = Repository::open(repo_dir)?;
-    let head = repo.head()?.peel_to_commit()?;
-    Ok(head.id().to_string())
+    let head = repo.head()?;
+    let oid = head.target().ok_or_else(|| Error::msg("HEAD has no target"))?;
+    Ok(oid.to_string())
 }
 
 fn clone_repo(url: &str, dest: &Path, ref_or_sha: Option<&str>) -> Result<()> {
@@ -43,29 +44,19 @@ fn clone_repo(url: &str, dest: &Path, ref_or_sha: Option<&str>) -> Result<()> {
 }
 
 fn pull_ff(repo_dir: &Path) -> Result<()> {
-    let repo = Repository::open(repo_dir)?;
-    let head_ref = repo.head()?;
-    let branch = head_ref.shorthand().unwrap_or("HEAD").to_string();
-    let mut remote = repo.find_remote("origin")?;
-    let mut fo = FetchOptions::new();
-    remote.fetch(&[branch.as_str()], Some(&mut fo), None)?;
-
-    let fetch_head = repo.find_reference("FETCH_HEAD")?;
-    let fetch_commit = repo.reference_to_annotated_commit(&fetch_head)?;
-    let analysis = repo.merge_analysis(&[&fetch_commit])?;
-    if analysis.0.is_up_to_date() {
-        return Ok(());
+    // libgit2's shallow fetch is unreliable (ACK parsing errors, missing objects).
+    // Since these are read-only caches, just re-clone for a clean state.
+    let url = {
+        let repo = Repository::open(repo_dir)?;
+        let remote = repo.find_remote("origin")?;
+        remote.url().unwrap_or("").to_string()
+    };
+    if url.is_empty() {
+        return Err(Error::msg("cannot re-clone: no origin URL"));
     }
-    if analysis.0.is_fast_forward() {
-        let refname = format!("refs/heads/{branch}");
-        let mut r = repo.find_reference(&refname)?;
-        r.set_target(fetch_commit.id(), "fast-forward")?;
-        repo.set_head(&refname)?;
-        repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
-        Ok(())
-    } else {
-        Err(Error::msg("non-fast-forward update, manual intervention required"))
-    }
+    std::fs::remove_dir_all(repo_dir)?;
+    clone_repo(&url, repo_dir, None)?;
+    Ok(())
 }
 
 fn derive_source_name(url: &str) -> String {

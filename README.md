@@ -113,6 +113,21 @@ kiro-cli chat --agent feature-dev
 
 Hooks and LSP configs are skipped (no Kiro equivalent).
 
+## Unsupported Claude Code Features
+
+The following Claude Code plugin features have no Kiro equivalent and are **skipped** during conversion:
+
+| Feature | Plugins Using It | Why Skipped |
+|---|---|---|
+| **Hooks** (`hooks/`, `hooks.json`) | hookify, ralph-loop, security-guidance, explanatory-output-style, learning-output-style | Kiro has no hook system (PreToolUse, PostToolUse, Stop, etc.) |
+| **Hook handlers** (`hooks-handlers/`) | explanatory-output-style, learning-output-style | Shell/Python scripts triggered by hooks |
+| **LSP servers** (`lspServers` in marketplace) | clangd-lsp, gopls-lsp, pyright-lsp, rust-analyzer-lsp, typescript-lsp, + 7 more | Kiro does not support custom LSP server configuration |
+| **Runtime code** (`core/`, `utils/`, `matchers/`, `scripts/`) | hookify | Python/shell runtime dependencies for hooks |
+| **`CLAUDE.md`** | (project-level config) | Kiro uses different project configuration |
+| **`strict` mode** | Some marketplace entries | No equivalent enforcement in Kiro |
+
+Skills, agents, commands, and MCP servers are fully converted. If a plugin only contains hooks or LSP configs, it will install with 0 components.
+
 ## Enable / Disable
 
 Components can be individually enabled or disabled without uninstalling:

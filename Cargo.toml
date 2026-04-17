@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/cli"]
+exclude = ["gui/src-tauri"]
+
+[workspace.package]
+version = "0.3.1"
+edition = "2021"
+authors = ["vokako"]
+license = "MIT"
+repository = "https://github.com/vokako/kiro-cc-plugins"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+anyhow = "1"
+thiserror = "1"
+dirs = "5"
+chrono = { version = "0.4", features = ["serde"] }
+git2 = { version = "0.19", default-features = false, features = ["https", "vendored-libgit2", "vendored-openssl"] }
+walkdir = "2"

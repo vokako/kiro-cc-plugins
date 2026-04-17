@@ -8,17 +8,23 @@ https://github.com/user-attachments/assets/81dde49f-8632-4427-b6d5-9492d5da09b8
 
 ## Install
 
-```bash
-# Run directly without installing
-uvx kiro-cc-plugins --help
+### CLI
 
-# Or install permanently
-uv tool install kiro-cc-plugins
-# Or with pip
-pip install kiro-cc-plugins
-# Or from GitHub
-uv tool install git+https://github.com/vokako/kiro-cc-plugins.git
+```bash
+# Build from source (requires Rust toolchain)
+cargo install --git https://github.com/vokako/kiro-cc-plugins kiro-cc-plugins
+
+# Or clone and build locally
+git clone https://github.com/vokako/kiro-cc-plugins
+cd kiro-cc-plugins
+cargo install --path crates/cli
 ```
+
+The binary is self-contained — no system `git`, Python, or other runtime required.
+
+### Desktop App
+
+Download a prebuilt `.dmg` (macOS) or `.exe` (Windows) installer from the [releases page](https://github.com/vokako/kiro-cc-plugins/releases).
 
 ## Quick Start
 
@@ -71,7 +77,9 @@ kiro-cli chat --agent feature-dev
 | `source add <url>` | Clone a marketplace or plugin repo |
 | `source list` | List registered sources |
 | `source update [name]` | Git pull sources |
-| `source remove <name>` | Remove a source |
+| `source remove <name>` | Remove a source (refuses if plugins installed) |
+| `source remove <name> --force` | Remove a source and its installed plugins |
+| `source remove --all --force` | Wipe all sources and their plugins |
 | `list` | List all plugins across all sources |
 | `list <plugin>` | Show plugin details, install status, and run commands |
 | `list --installed` | Show installed plugins only |
@@ -84,19 +92,19 @@ kiro-cli chat --agent feature-dev
 | `add --git <url>` | Install directly from a git URL |
 | `update <name> / --all` | Git pull source and re-convert |
 | `update --only skill` | Re-convert only specific component types |
-| `delete <name> / --all` | Remove installed plugins |
+| `delete <name> / --all` | Remove installed plugins (alias: `remove`) |
 | `delete -y` | Skip confirmation prompt |
 
 ## Conversion Mapping
 
 | Claude Code | Kiro | Format |
 |---|---|---|
-| `skills/*/SKILL.md` | `~/.kiro/skills/{source}--{plugin}--{skill}/` | Direct copy (compatible format) |
-| `commands/*.md` | `~/.kiro/agents/{name}.json` | Prompt → agent JSON |
-| `agents/*.md` | `~/.kiro/agents/{name}.json` | Prompt → agent JSON, tools mapped |
-| `.mcp.json` | `~/.kiro/agents/{plugin}-mcp.json` | MCP config → agent with mcpServers |
+| `skills/*/SKILL.md` | `~/.kiro/skills/{source}--{plugin}--{skill}/` | Direct copy |
+| `commands/*.md` | `~/.kiro/agents/{source}--{plugin}--{name}.json` | Prompt → agent JSON |
+| `agents/*.md` | `~/.kiro/agents/{source}--{plugin}--{name}.json` | Prompt → agent JSON, tools mapped |
+| `.mcp.json` | `~/.kiro/settings/mcp.json` (key `cc-{plugin}-{server}`) | Merged into Kiro MCP settings |
 
-Hooks and LSP configs are skipped (no Kiro equivalent). Existing agents with the same name are not overwritten.
+Hooks and LSP configs are skipped (no Kiro equivalent). Existing agents with the same namespaced filename are not overwritten.
 
 ## Status Icons
 
@@ -114,4 +122,29 @@ Hooks and LSP configs are skipped (no Kiro equivalent). Existing agents with the
 ├── config.json      # Registered sources
 ├── registry.json    # Installed plugin tracking
 └── cache/           # Cloned git repos
+```
+
+## Development
+
+This is a Cargo workspace:
+
+- `crates/core/` — Core library (source management, scanner, converter, registry)
+- `crates/cli/` — CLI binary (`kiro-cc-plugins`)
+- `gui/` — Tauri + Svelte desktop app (depends on `crates/core`)
+
+```bash
+# Build everything
+cargo build --release
+
+# Run the CLI
+cargo run -p kiro-cc-plugins -- source list
+
+# Run tests (unit tests)
+cargo test
+
+# Run the end-to-end test (requires network, clones real repos)
+cargo test -p kiro_cc_core --test e2e -- --ignored
+
+# Build the desktop app
+cd gui && npm install && npm run tauri build
 ```

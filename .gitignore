@@ -1,9 +1,6 @@
-.venv/
-__pycache__/
-*.egg-info/
-dist/
-build/
-uv.lock
+# Rust
+target/
+Cargo.lock.bak
 
 # GUI
 gui/node_modules/

@@ -114,6 +114,17 @@ enum Cmd {
     },
     /// Show sources and installed plugins overview
     Status,
+    /// Export all sources, plugins, and enable states to a JSON file
+    Export {
+        /// Output file path (default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Import sources, plugins, and enable states from a JSON file
+    Import {
+        /// Input file path
+        file: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -168,6 +179,8 @@ fn run() -> Result<()> {
         Cmd::Disable { plugin, component, only } => toggle_cmd(&plugin, component.as_deref(), only.as_deref(), false),
         Cmd::Api { request } => api_cmd(&request),
         Cmd::Status => status_cmd(),
+        Cmd::Export { output } => export_cmd(output.as_deref()),
+        Cmd::Import { file } => import_cmd(&file),
     }
 }
 
@@ -830,5 +843,39 @@ fn status_cmd() -> Result<()> {
     }
 
     println!("\n{} sources, {} plugins installed", sources.len(), installed.len());
+    Ok(())
+}
+
+
+// ── export/import ────────────────────────────────────────────────────────
+
+fn export_cmd(output: Option<&str>) -> Result<()> {
+    let result = kiro_cc_core::api::dispatch(&serde_json::json!({"command": "config.export"}));
+    let data = result.get("data").ok_or_else(|| anyhow!("{}", result.get("error").and_then(|v| v.as_str()).unwrap_or("export failed")))?;
+    let json = serde_json::to_string_pretty(data)?;
+    if let Some(path) = output {
+        std::fs::write(path, format!("{json}\n"))?;
+        ok(format!("Exported to {path}"));
+    } else {
+        println!("{json}");
+    }
+    Ok(())
+}
+
+fn import_cmd(file: &str) -> Result<()> {
+    let text = std::fs::read_to_string(file).context("reading import file")?;
+    let config: serde_json::Value = serde_json::from_str(&text).context("parsing JSON")?;
+    let pb = spinner("Importing...");
+    let result = kiro_cc_core::api::dispatch(&serde_json::json!({"command": "config.import", "args": {"config": config}}));
+    pb.finish_and_clear();
+    if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let data = &result["data"];
+        let ns = data.get("sources").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+        let np = data.get("plugins").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+        ok(format!("Imported {ns} sources, {np} plugins from {file}"));
+    } else {
+        let err = result.get("error").and_then(|v| v.as_str()).unwrap_or("unknown error");
+        return Err(anyhow!("{err}"));
+    }
     Ok(())
 }

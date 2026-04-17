@@ -21,6 +21,8 @@ pub fn dispatch(request: &Value) -> Value {
         "plugin.delete" => plugin_delete(args),
         "plugin.update" => plugin_update(args),
         "plugin.toggle" => plugin_toggle(args),
+        "config.export" => config_export(),
+        "config.import" => config_import(args),
         other => Err(format!("Unknown command: {other}")),
     };
     match result {
@@ -333,4 +335,78 @@ fn plugin_toggle(args: Value) -> Result<Value, String> {
         touched += 1;
     }
     Ok(json!({"touched": touched, "enable": enable}))
+}
+
+
+// ── config export/import ─────────────────────────────────────────────────
+
+fn config_export() -> Result<Value, String> {
+    let sources: Vec<Value> = source::list_sources().into_iter().map(|s| json!({"name": s.name, "url": s.url})).collect();
+    let installed = registry::get_installed();
+    let mut plugins = Vec::new();
+    for p in installed {
+        converter::set_scope(Scope::from_str(&p.scope));
+        let comps: Vec<Value> = p.components.iter().map(|c| {
+            let enabled = converter::is_component_enabled(&c.component_type, &c.target_path, c.mcp_keys.as_deref());
+            json!({"type": c.component_type, "name": c.name, "enabled": enabled})
+        }).collect();
+        plugins.push(json!({
+            "name": p.plugin_name,
+            "source": p.source_name,
+            "scope": p.scope,
+            "components": comps,
+        }));
+    }
+    Ok(json!({"version": 1, "sources": sources, "plugins": plugins}))
+}
+
+fn config_import(args: Value) -> Result<Value, String> {
+    let config = if let Some(s) = args.get("config") { s.clone() } else { args.clone() };
+    let ver = config.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
+    if ver != 1 { return Err(format!("unsupported config version: {ver}")); }
+
+    // 1. Add sources
+    let mut source_results = Vec::new();
+    if let Some(sources) = config.get("sources").and_then(|v| v.as_array()) {
+        for src in sources {
+            let url = src.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            let name = src.get("name").and_then(|v| v.as_str());
+            if url.is_empty() { continue; }
+            match source::add_source(url, name) {
+                Ok(s) => source_results.push(json!({"name": s.name, "status": "ok"})),
+                Err(e) => source_results.push(json!({"name": name.unwrap_or(url), "status": format!("{e}")})),
+            }
+        }
+    }
+
+    // 2. Install plugins + set enable/disable
+    let mut plugin_results = Vec::new();
+    if let Some(plugins) = config.get("plugins").and_then(|v| v.as_array()) {
+        for pl in plugins {
+            let name = pl.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let scope = pl.get("scope").and_then(|v| v.as_str()).unwrap_or("global");
+            if name.is_empty() { continue; }
+
+            // Install if not already installed
+            if registry::get_installed_plugin(name).is_none() {
+                let add_args = json!({"name": name, "scope": scope});
+                let _ = plugin_add(add_args);
+            }
+
+            // Set enable/disable per component
+            if let Some(comps) = pl.get("components").and_then(|v| v.as_array()) {
+                for c in comps {
+                    let comp_name = c.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let enabled = c.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+                    if !comp_name.is_empty() {
+                        let toggle_args = json!({"name": name, "component": comp_name, "enable": enabled});
+                        let _ = plugin_toggle(toggle_args);
+                    }
+                }
+            }
+            plugin_results.push(json!({"name": name, "status": "ok"}));
+        }
+    }
+
+    Ok(json!({"sources": source_results, "plugins": plugin_results}))
 }

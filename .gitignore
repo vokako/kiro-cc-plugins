@@ -1,13 +1,9 @@
-.venv/
-__pycache__/
-*.egg-info/
-dist/
-build/
-uv.lock
+# Rust
+target/
+Cargo.lock.bak
 
 # GUI
 gui/node_modules/
 gui/build/
 gui/.svelte-kit/
 gui/src-tauri/target/
-target/

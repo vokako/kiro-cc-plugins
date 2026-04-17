@@ -89,17 +89,17 @@ fn e2e_full_flow() {
     install("feature-dev");
     let agent_files: HashSet<String> = kiro_agents().iter().map(|p| p.file_stem().unwrap().to_string_lossy().into_owned()).collect();
     for want in [
-        "cc--anthropics--claude-plugins-official--feature-dev--feature-dev",
-        "cc--anthropics--claude-plugins-official--feature-dev--code-reviewer",
-        "cc--anthropics--claude-plugins-official--feature-dev--code-explorer",
-        "cc--anthropics--claude-plugins-official--feature-dev--code-architect",
+        "anthropics--claude-plugins-official--feature-dev--feature-dev",
+        "anthropics--claude-plugins-official--feature-dev--code-reviewer",
+        "anthropics--claude-plugins-official--feature-dev--code-explorer",
+        "anthropics--claude-plugins-official--feature-dev--code-architect",
     ] {
         assert!(agent_files.contains(want), "missing {want}");
     }
     // verify internal name is unprefixed
     for (fname, inner) in [
-        ("cc--anthropics--claude-plugins-official--feature-dev--code-reviewer.json", "code-reviewer"),
-        ("cc--anthropics--claude-plugins-official--feature-dev--feature-dev.json", "feature-dev"),
+        ("anthropics--claude-plugins-official--feature-dev--code-reviewer.json", "code-reviewer"),
+        ("anthropics--claude-plugins-official--feature-dev--feature-dev.json", "feature-dev"),
     ] {
         let p = models::kiro_home().join("agents").join(fname);
         let d: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();

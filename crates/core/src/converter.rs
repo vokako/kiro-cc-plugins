@@ -23,7 +23,7 @@ fn get_scope() -> Scope {
 pub fn kiro_agent_path(name: &str, plugin_name: &str, source_name: &str) -> PathBuf {
     let filename = if !plugin_name.is_empty() && !source_name.is_empty() {
         let safe_source = source_name.replace('/', "--");
-        format!("cc--{safe_source}--{plugin_name}--{name}")
+        format!("{safe_source}--{plugin_name}--{name}")
     } else {
         name.to_string()
     };

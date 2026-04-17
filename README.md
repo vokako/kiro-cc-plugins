@@ -92,6 +92,9 @@ kiro-cli chat --agent feature-dev
 | `enable <plugin> --only skill` | Enable only skills |
 | `disable <plugin>` | Disable all components of a plugin |
 | `disable <plugin> --component <name>` | Disable a specific component |
+| `export` | Export all config to stdout |
+| `export -o <file>` | Export all config to a file |
+| `import <file>` | Import config (sources, plugins, enable states) |
 
 ## Conversion Mapping
 

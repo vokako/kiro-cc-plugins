@@ -112,6 +112,8 @@ enum Cmd {
         /// JSON request string: {"command":"...","args":{...}}
         request: String,
     },
+    /// Show sources and installed plugins overview
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -165,6 +167,7 @@ fn run() -> Result<()> {
         Cmd::Enable { plugin, component, only } => toggle_cmd(&plugin, component.as_deref(), only.as_deref(), true),
         Cmd::Disable { plugin, component, only } => toggle_cmd(&plugin, component.as_deref(), only.as_deref(), false),
         Cmd::Api { request } => api_cmd(&request),
+        Cmd::Status => status_cmd(),
     }
 }
 
@@ -417,8 +420,13 @@ fn list_installed(type_filter: &Option<HashSet<String>>) -> Result<()> {
     let mut t = make_table();
     t.set_header(vec!["Plugin", "Source", "Components", "Installed"]);
     for p in items {
+        converter::set_scope(models::Scope::from_str(&p.scope));
         let comps: Vec<_> = p.components.iter().filter(|c| type_filter.as_ref().is_none_or(|f| f.contains(&c.component_type))).collect();
-        let summary = comps.iter().map(|c| format!("{}:{}", c.component_type, c.name)).collect::<Vec<_>>().join(", ");
+        let summary = comps.iter().map(|c| {
+            let enabled = converter::is_component_enabled(&c.component_type, &c.target_path, c.mcp_keys.as_deref());
+            let icon = if enabled { "✓" } else { "✗" };
+            format!("{icon} {}:{}", c.component_type, c.name)
+        }).collect::<Vec<_>>().join(", ");
         let date = p.installed_at.chars().take(10).collect::<String>();
         t.add_row(vec![p.plugin_name, p.source_name, summary, date]);
     }
@@ -785,5 +793,42 @@ fn api_cmd(request_json: &str) -> Result<()> {
         .map_err(|e| anyhow!("invalid JSON: {e}"))?;
     let result = kiro_cc_core::api::dispatch(&request);
     println!("{}", serde_json::to_string(&result)?);
+    Ok(())
+}
+
+
+// ── status ───────────────────────────────────────────────────────────────
+
+fn status_cmd() -> Result<()> {
+    let sources = source::list_sources();
+    let installed = registry::get_installed();
+
+    println!("{}", style("Sources").bold());
+    if sources.is_empty() {
+        dim("  (none)");
+    } else {
+        for s in &sources {
+            println!("  {} {} ({})", style("⬡").green(), s.name, s.commit.chars().take(8).collect::<String>());
+        }
+    }
+
+    println!("\n{}", style("Installed Plugins").bold());
+    if installed.is_empty() {
+        dim("  (none)");
+    } else {
+        for p in &installed {
+            let types: Vec<&str> = p.components.iter().map(|c| c.component_type.as_str()).collect();
+            let enabled = p.components.iter().filter(|c| converter::is_component_enabled(&c.component_type, &c.target_path, c.mcp_keys.as_deref())).count();
+            println!("  {} {} ({}/{} enabled) [{}]",
+                style("●").green(),
+                style(&p.plugin_name).bold(),
+                enabled,
+                p.components.len(),
+                types.join(", "),
+            );
+        }
+    }
+
+    println!("\n{} sources, {} plugins installed", sources.len(), installed.len());
     Ok(())
 }

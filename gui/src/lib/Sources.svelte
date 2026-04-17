@@ -70,6 +70,21 @@
     }
   }
 
+  async function updateAll() {
+    loading = true;
+    error = null;
+    message = null;
+    try {
+      await api.sources.update(null);
+      message = "All sources updated";
+      await load();
+    } catch (e) {
+      error = e.message;
+    } finally {
+      loading = false;
+    }
+  }
+
   load();
 </script>
 
@@ -80,6 +95,7 @@
       GIT SOURCES
       <span class="count">{sources.length}</span>
     </h2>
+    <button class="btn-update-all" onclick={updateAll} disabled={loading}>↻ UPDATE ALL</button>
   </div>
 
   <div class="add-row">
@@ -160,7 +176,27 @@
   }
 
   .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-bottom: 20px;
+  }
+
+  .btn-update-all {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    padding: 5px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+
+  .btn-update-all:hover {
+    color: var(--text);
+    border-color: var(--border-bright);
+    background: var(--bg-raised);
   }
 
   h2 {

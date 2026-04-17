@@ -11,20 +11,18 @@ https://github.com/user-attachments/assets/81dde49f-8632-4427-b6d5-9492d5da09b8
 ### CLI
 
 ```bash
-# Build from source (requires Rust toolchain)
-cargo install --git https://github.com/vokako/kiro-cc-plugins kiro-cc-plugins
+# One-line install (macOS / Linux)
+curl -fsSL https://raw.githubusercontent.com/vokako/kiro-cc-plugins/main/install.sh | bash
 
-# Or clone and build locally
-git clone https://github.com/vokako/kiro-cc-plugins
-cd kiro-cc-plugins
-cargo install --path crates/cli
+# Or build from source
+cargo install --git https://github.com/vokako/kiro-cc-plugins kiro-cc-plugins
 ```
 
-The binary is self-contained — no system `git`, Python, or other runtime required.
+No system `git`, Python, or other runtime required — single self-contained binary.
 
 ### Desktop App
 
-Download a prebuilt `.dmg` (macOS) or `.exe` (Windows) installer from the [releases page](https://github.com/vokako/kiro-cc-plugins/releases).
+Download `.dmg` (macOS) or `.exe` (Windows) from the [releases page](https://github.com/vokako/kiro-cc-plugins/releases).
 
 ## Quick Start
 
@@ -35,21 +33,17 @@ kiro-cc-plugins source add https://github.com/anthropics/claude-plugins-official
 # Add the Anthropic skills repo
 kiro-cc-plugins source add https://github.com/anthropics/skills.git
 
-# Browse all available plugins (merges all sources)
+# Show overview of sources and installed plugins
+kiro-cc-plugins status
+
+# Browse all available plugins
 kiro-cc-plugins list
 
-# List all skills or agents across sources
-kiro-cc-plugins list --skills
-kiro-cc-plugins list --agents
-
-# Show plugin details (shows install status and run commands)
+# Show plugin details
 kiro-cc-plugins list feature-dev
 
 # Install a plugin (auto-detects which source)
 kiro-cc-plugins add feature-dev
-
-# Install to current project only
-kiro-cc-plugins add feature-dev --scope workspace
 
 # Install only specific component types
 kiro-cc-plugins add plugin-dev --only skill
@@ -74,15 +68,16 @@ kiro-cli chat --agent feature-dev
 
 | Command | Description |
 |---|---|
+| `status` | Show sources and installed plugins overview |
 | `source add <url>` | Clone a marketplace or plugin repo |
 | `source list` | List registered sources |
-| `source update [name]` | Git pull sources |
+| `source update [name]` | Git pull sources (or all) |
 | `source remove <name>` | Remove a source (refuses if plugins installed) |
-| `source remove <name> --force` | Remove a source and its installed plugins |
-| `source remove --all --force` | Wipe all sources and their plugins |
+| `source remove <name> --force` | Remove source and uninstall its plugins |
+| `source remove --all --force` | Wipe all sources and plugins |
 | `list` | List all plugins across all sources |
 | `list <plugin>` | Show plugin details, install status, and run commands |
-| `list --installed` | Show installed plugins only |
+| `list --installed` | Show installed plugins with enable/disable status |
 | `list --skills` | List all skills across sources |
 | `list --agents` | List all agents across sources |
 | `add <name>` | Install a plugin (auto-detects source) |
@@ -94,6 +89,11 @@ kiro-cli chat --agent feature-dev
 | `update --only skill` | Re-convert only specific component types |
 | `delete <name> / --all` | Remove installed plugins (alias: `remove`) |
 | `delete -y` | Skip confirmation prompt |
+| `enable <plugin>` | Enable all components of a plugin |
+| `enable <plugin> --component <name>` | Enable a specific component |
+| `enable <plugin> --only skill` | Enable only skills |
+| `disable <plugin>` | Disable all components of a plugin |
+| `disable <plugin> --component <name>` | Disable a specific component |
 
 ## Conversion Mapping
 
@@ -104,47 +104,57 @@ kiro-cli chat --agent feature-dev
 | `agents/*.md` | `~/.kiro/agents/{source}--{plugin}--{name}.json` | Prompt → agent JSON, tools mapped |
 | `.mcp.json` | `~/.kiro/settings/mcp.json` (key `cc-{plugin}-{server}`) | Merged into Kiro MCP settings |
 
-Hooks and LSP configs are skipped (no Kiro equivalent). Existing agents with the same namespaced filename are not overwritten.
+Hooks and LSP configs are skipped (no Kiro equivalent).
+
+## Enable / Disable
+
+Components can be individually enabled or disabled without uninstalling:
+
+- **Skills**: moved to `~/.kiro/cc-plugins/disabled-skills/` when disabled
+- **Agents/Commands**: moved to `~/.kiro/cc-plugins/disabled-agents/` when disabled
+- **MCP servers**: `"disabled": true` flag set in `~/.kiro/settings/mcp.json`
+
+The desktop app shows toggle buttons on each component card.
 
 ## Status Icons
 
 | Icon | Meaning |
 |---|---|
-| ✓ (green) | Installed |
+| ✓ (green) | Installed & enabled |
+| ✗ | Disabled |
 | ○ (green) | Available locally |
 | ○ (yellow) | Fetchable (external, auto-cloned on `add`) |
-| ✗ (red) | Not available |
 
 ## Data Storage
 
 ```
 ~/.kiro/cc-plugins/
-├── config.json      # Registered sources
-├── registry.json    # Installed plugin tracking
-└── cache/           # Cloned git repos
+├── config.json          # Registered sources
+├── registry.json        # Installed plugin tracking
+├── cache/               # Cloned git repos
+├── disabled-skills/     # Parked disabled skills
+└── disabled-agents/     # Parked disabled agents
 ```
 
-## Development
+## Architecture
 
-This is a Cargo workspace:
+Cargo workspace with three crates:
 
-- `crates/core/` — Core library (source management, scanner, converter, registry)
+- `crates/core/` — Core library (source, scanner, converter, registry, JSON API)
 - `crates/cli/` — CLI binary (`kiro-cc-plugins`)
-- `gui/` — Tauri + Svelte desktop app (depends on `crates/core`)
+- `gui/` — Tauri + Svelte desktop app (uses `crates/core` as in-process SDK)
 
 ```bash
 # Build everything
 cargo build --release
 
-# Run the CLI
-cargo run -p kiro-cc-plugins -- source list
+# Run CLI
+cargo run -p kiro-cc-plugins -- status
 
-# Run tests (unit tests)
+# Run tests
 cargo test
+cargo test -p kiro_cc_core --test e2e -- --ignored  # requires network
 
-# Run the end-to-end test (requires network, clones real repos)
-cargo test -p kiro_cc_core --test e2e -- --ignored
-
-# Build the desktop app
+# Build desktop app
 cd gui && npm install && npm run tauri build
 ```

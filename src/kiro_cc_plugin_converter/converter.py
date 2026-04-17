@@ -17,8 +17,13 @@ def set_scope(scope: str):
     _scope = scope
 
 
-def _kiro_agent_path(name: str) -> Path:
-    return kiro_root(_scope) / "agents" / f"{name}.json"
+def _kiro_agent_path(name: str, plugin_name: str = "", source_name: str = "") -> Path:
+    if plugin_name and source_name:
+        safe_source = source_name.replace("/", "--")
+        filename = f"cc--{safe_source}--{plugin_name}--{name}"
+    else:
+        filename = name
+    return kiro_root(_scope) / "agents" / f"{filename}.json"
 
 
 def _kiro_skill_dir(name: str, plugin_name: str, source_name: str) -> Path:
@@ -51,11 +56,10 @@ def _is_our_skill(target_dir: Path) -> bool:
 def check_conflict(name: str, comp_type: str, plugin_name: str = "", source_name: str = "") -> str | None:
     """Return conflict message if target already exists and isn't ours. None if ok."""
     if comp_type in ("agent", "command"):
-        target = _kiro_agent_path(name)
+        target = _kiro_agent_path(name, plugin_name, source_name)
         if target.exists() and not _is_ours(target):
             return f"Agent '{name}' already exists at {target}"
     elif comp_type == "mcp":
-        # MCP keys are namespaced (cc--plugin--server), conflicts unlikely
         pass
     elif comp_type == "skill":
         target = _kiro_skill_dir(name, plugin_name, source_name)
@@ -92,7 +96,7 @@ def _map_tools(fm: dict) -> list[str]:
     return sorted(kiro_tools) if kiro_tools else ["*"]
 
 
-def convert_agent(comp: ScannedComponent, plugin_name: str) -> dict:
+def convert_agent(comp: ScannedComponent, plugin_name: str, source_name: str = "") -> dict:
     """Convert a Claude Code agent .md to Kiro agent .json."""
     fm = comp.frontmatter
 
@@ -118,7 +122,7 @@ def convert_agent(comp: ScannedComponent, plugin_name: str) -> dict:
         model_map = {"opus": "claude-opus-4", "sonnet": "claude-sonnet-4", "haiku": "claude-haiku-3.5"}
         agent_config["model"] = model_map.get(fm["model"], fm["model"])
 
-    target = _kiro_agent_path(comp.name)
+    target = _kiro_agent_path(comp.name, plugin_name, source_name)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(agent_config, indent=2, ensure_ascii=False) + "\n")
     return {"type": comp.type, "name": comp.name, "source_rel": comp.rel_path, "target_path": str(target)}
@@ -143,8 +147,8 @@ def convert_skill(comp: ScannedComponent, plugin_name: str, source_name: str = "
     return {"type": "skill", "name": comp.name, "source_rel": comp.rel_path, "target_path": str(target)}
 
 
-def convert_command(comp: ScannedComponent, plugin_name: str) -> dict:
-    return convert_agent(comp, plugin_name)
+def convert_command(comp: ScannedComponent, plugin_name: str, source_name: str = "") -> dict:
+    return convert_agent(comp, plugin_name, source_name)
 
 
 def _kiro_mcp_settings_path() -> Path:
@@ -211,9 +215,7 @@ CONVERTERS = {
 def convert_component(comp: ScannedComponent, plugin_name: str, source_name: str = "") -> dict | None:
     converter = CONVERTERS.get(comp.type)
     if converter:
-        if comp.type in ("skill", "mcp"):
-            return converter(comp, plugin_name, source_name)
-        return converter(comp, plugin_name)
+        return converter(comp, plugin_name, source_name)
     return None
 
 

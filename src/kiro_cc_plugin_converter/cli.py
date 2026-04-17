@@ -102,11 +102,40 @@ def source_list():
 
 
 @source_group.command("remove")
-@click.argument("name")
-def source_remove(name: str):
+@click.argument("name", required=False)
+@click.option("--force", "-f", is_flag=True, help="Force remove even if plugins are installed (also uninstalls them)")
+@click.option("--all", "remove_all", is_flag=True, help="Remove all sources (requires --force)")
+def source_remove(name: str | None, force: bool, remove_all: bool):
     """Remove a source."""
-    src_mod.remove_source(name)
-    console.print(f"[green]✓[/] Source [bold]{name}[/] removed")
+    if remove_all:
+        if not force:
+            raise click.ClickException("--all requires --force")
+        targets = [s["name"] for s in src_mod.list_sources()]
+        if not targets:
+            console.print("[dim]No sources to remove.[/]")
+            return
+    elif name:
+        targets = [name]
+    else:
+        raise click.ClickException("Specify a source name or --all")
+
+    for sn in targets:
+        installed = [p for p in registry.get_installed() if p["source_name"] == sn]
+        if installed and not force:
+            names = ", ".join(p["plugin_name"] for p in installed)
+            raise click.ClickException(
+                f"Source '{sn}' has {len(installed)} installed plugin(s): {names}.\n"
+                f"Use --force to uninstall them and remove the source."
+            )
+        # Uninstall plugins from this source
+        for p in installed:
+            converter.set_scope(p.get("scope", "global"))
+            components = registry.remove_installed(p["plugin_name"])
+            for comp in components:
+                converter.remove_converted(comp["target_path"], comp.get("mcp_keys"))
+            console.print(f"  [yellow]⚠[/] Uninstalled {p['plugin_name']} ({len(components)} components)")
+        src_mod.remove_source(sn)
+        console.print(f"[green]✓[/] Source [bold]{sn}[/] removed")
 
 
 @source_group.command("update")
@@ -503,3 +532,9 @@ def update_cmd(plugin_name: str | None, update_all: bool, only_types: str | None
 
         registry.add_installed(p["plugin_name"], sn, converted, commit, scope)
         console.print(f"  [green]✓[/] {p['plugin_name']} updated ({len(converted)} components)")
+
+
+# ── command aliases ──────────────────────────────────────────────────────
+# delete/remove are interchangeable for both plugin and source management.
+cli.add_command(delete_cmd, name="remove")
+source_group.add_command(source_remove, name="delete")

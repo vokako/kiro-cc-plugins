@@ -85,8 +85,35 @@ def source_add(args: dict):
 
 
 def source_remove(args: dict):
-    src_mod.remove_source(args["name"])
-    return ok()
+    name = args.get("name")
+    force = args.get("force", False)
+    remove_all = args.get("all", False)
+
+    if remove_all:
+        if not force:
+            return err("--all requires force=true")
+        targets = [s["name"] for s in src_mod.list_sources()]
+    elif name:
+        targets = [name]
+    else:
+        return err("Specify a source name or all=true")
+
+    results = []
+    for sn in targets:
+        installed = [p for p in registry.get_installed() if p["source_name"] == sn]
+        if installed and not force:
+            names = [p["plugin_name"] for p in installed]
+            return err(f"Source '{sn}' has {len(installed)} installed plugin(s): {', '.join(names)}. Use force=true to uninstall them.")
+        uninstalled = []
+        for p in installed:
+            converter.set_scope(p.get("scope", "global"))
+            components = registry.remove_installed(p["plugin_name"])
+            for comp in components:
+                converter.remove_converted(comp["target_path"], comp.get("mcp_keys"))
+            uninstalled.append(p["plugin_name"])
+        src_mod.remove_source(sn)
+        results.append({"name": sn, "uninstalled_plugins": uninstalled})
+    return ok(results)
 
 
 def source_update(args: dict):

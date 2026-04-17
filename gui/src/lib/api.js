@@ -11,6 +11,10 @@ async function callApi(command, args = {}) {
 }
 
 export const api = {
+  config: {
+    export: () => callApi("config.export"),
+    import: (config) => callApi("config.import", { config }),
+  },
   sources: {
     list: () => callApi("source.list"),
     add: (url, name) => callApi("source.add", { url, name }),

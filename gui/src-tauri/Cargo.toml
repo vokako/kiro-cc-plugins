@@ -1,6 +1,6 @@
 [package]
 name = "kiro-cc-plugins-app"
-version = "0.3.2"
+version = "0.3.3"
 description = "Kiro CC Plugins Manager"
 authors = ["you"]
 edition = "2021"
@@ -21,6 +21,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 kiro_cc_core = { path = "../../crates/core" }

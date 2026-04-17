@@ -1962,7 +1962,7 @@ dependencies = [
 
 [[package]]
 name = "kiro-cc-plugins-app"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "kiro_cc_core",
  "serde",
@@ -1970,12 +1970,13 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tauri-plugin-fs",
  "tauri-plugin-opener",
 ]
 
 [[package]]
 name = "kiro_cc_core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "chrono",

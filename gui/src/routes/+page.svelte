@@ -1,6 +1,9 @@
 <script>
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { save, open } from "@tauri-apps/plugin-dialog";
+  import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
+  import { api } from "$lib/api.js";
   import Sources from "$lib/Sources.svelte";
   import Plugins from "$lib/Plugins.svelte";
   import Installed from "$lib/Installed.svelte";
@@ -29,6 +32,33 @@
   function openSource(sourceName) {
     initialSource = sourceName;
     tab = "plugins";
+  }
+
+  async function exportConfig() {
+    try {
+      const data = await api.config.export();
+      const path = await save({ defaultPath: "kiro-cc-plugins.json", filters: [{ name: "JSON", extensions: ["json"] }] });
+      if (path) {
+        await writeTextFile(path, JSON.stringify(data, null, 2));
+      }
+    } catch (e) {
+      console.error("export failed:", e);
+    }
+  }
+
+  async function importConfig() {
+    try {
+      const path = await open({ filters: [{ name: "JSON", extensions: ["json"] }] });
+      if (!path) return;
+      const text = await readTextFile(path);
+      const config = JSON.parse(text);
+      await api.config.import(config);
+      // Refresh all tabs
+      pluginsRef?.load();
+      installedRef?.load();
+    } catch (e) {
+      console.error("import failed:", e);
+    }
   }
 
   let zoomLevel = 1;
@@ -63,7 +93,9 @@
       </button>
     </nav>
     <div class="header-right">
-      <button class="refresh-btn" onclick={refresh} title="Refresh">↻</button>
+      <button class="header-btn" onclick={importConfig} title="Import config">↓</button>
+      <button class="header-btn" onclick={exportConfig} title="Export config">↑</button>
+      <button class="header-btn" onclick={refresh} title="Refresh">↻</button>
     </div>
   </header>
 
@@ -296,7 +328,7 @@
     -webkit-app-region: no-drag;
   }
 
-  .refresh-btn {
+  .header-btn {
     background: transparent;
     border: 1px solid var(--border);
     padding: 4px 10px;
@@ -306,14 +338,14 @@
     transition: all 0.2s;
   }
 
-  .refresh-btn:hover {
+  .header-btn:hover {
     color: var(--amber);
     border-color: var(--amber);
     background: rgba(134, 68, 240, 0.06);
   }
 
-  .refresh-btn:active {
-    transform: rotate(180deg);
+  .header-btn:active {
+    transform: translateY(1px);
   }
 
   main {

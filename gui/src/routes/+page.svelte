@@ -93,8 +93,8 @@
       </button>
     </nav>
     <div class="header-right">
-      <button class="header-btn" onclick={importConfig} title="Import config">↓</button>
-      <button class="header-btn" onclick={exportConfig} title="Export config">↑</button>
+      <button class="header-btn" onclick={importConfig} title="Load config from file">LOAD</button>
+      <button class="header-btn" onclick={exportConfig} title="Save config to file">SAVE</button>
       <button class="header-btn" onclick={refresh} title="Refresh">↻</button>
     </div>
   </header>

@@ -28,7 +28,27 @@ No system `git`, Python, or other runtime required — single self-contained bin
 
 Download `.dmg` (macOS) or `.exe` (Windows) from the [releases page](https://github.com/vokako/kiro-cc-plugins/releases).
 
-## Quick Start
+## Desktop App Guide
+
+### Step 1: Add Sources
+
+Go to the **Sources** tab and paste a git repository URL (e.g. `https://github.com/anthropics/claude-plugins-official`). Click **ADD** to clone the marketplace. You can add multiple sources — each source card shows its name, URL, and latest commit. Use **↻ UPDATE ALL** to pull the latest from all sources.
+
+<img width="960" alt="app-sources" src="https://github.com/user-attachments/assets/4fc43c94-562a-44c4-bd18-18c444c0c373" />
+
+### Step 2: Browse & Install Plugins
+
+Click a source card to jump to the **Plugins** tab filtered by that source, or switch to the Plugins tab directly. Use the search bar and source filter to find plugins. Click a plugin to see its details and components. Hit **⬡ INSTALL** to install it. Each component card shows an **ON/OFF** toggle to enable or disable individual skills, agents, or MCP servers.
+
+<img width="960" alt="app-plugins" src="https://github.com/user-attachments/assets/bdd43418-7a16-4f8b-8e45-aaa8e8e0283b" />
+
+### Step 3: Manage Installed Plugins
+
+Switch to the **Installed** tab to see all installed plugins as cards. Each card shows its components with enable/disable status — click a component tag to toggle it. Use **✓✓** / **✗✗** to bulk enable or disable all components. Click a card to jump to its detail view in the Plugins tab. Use **✕** to uninstall.
+
+<img width="960" alt="app-installed" src="https://github.com/user-attachments/assets/ad466897-709b-4fb2-8cc7-397d1f46f031" />
+
+## CLI Quick Start
 
 ```bash
 # Add the official Claude Code marketplace
@@ -111,8 +131,6 @@ kiro-cli chat --agent feature-dev
 | `agents/*.md` | `~/.kiro/agents/{source}--{plugin}--{name}.json` | Prompt → agent JSON, tools mapped |
 | `.mcp.json` | `~/.kiro/settings/mcp.json` (key `cc-{plugin}-{server}`) | Merged into Kiro MCP settings |
 
-Hooks and LSP configs are skipped (no Kiro equivalent).
-
 ## Unsupported Claude Code Features
 
 The following Claude Code plugin features have no Kiro equivalent and are **skipped** during conversion:
@@ -156,26 +174,6 @@ The desktop app shows toggle buttons on each component card.
 ├── disabled-skills/     # Parked disabled skills
 └── disabled-agents/     # Parked disabled agents
 ```
-
-## Desktop App Guide
-
-### Step 1: Add Sources
-
-Go to the **Sources** tab and paste a git repository URL (e.g. `https://github.com/anthropics/claude-plugins-official`). Click **ADD** to clone the marketplace. You can add multiple sources — each source card shows its name, URL, and latest commit. Use **↻ UPDATE ALL** to pull the latest from all sources.
-
-<img width="960" alt="app-sources" src="https://github.com/user-attachments/assets/4fc43c94-562a-44c4-bd18-18c444c0c373" />
-
-### Step 2: Browse & Install Plugins
-
-Click a source card to jump to the **Plugins** tab filtered by that source, or switch to the Plugins tab directly. Use the search bar and source filter to find plugins. Click a plugin to see its details and components. Hit **⬡ INSTALL** to install it. Each component card shows an **ON/OFF** toggle to enable or disable individual skills, agents, or MCP servers.
-
-<img width="960" alt="app-plugins" src="https://github.com/user-attachments/assets/bdd43418-7a16-4f8b-8e45-aaa8e8e0283b" />
-
-### Step 3: Manage Installed Plugins
-
-Switch to the **Installed** tab to see all installed plugins as cards. Each card shows its components with enable/disable status — click a component tag to toggle it. Use **✓✓** / **✗✗** to bulk enable or disable all components. Click a card to jump to its detail view in the Plugins tab. Use **✕** to uninstall.
-
-<img width="960" alt="app-installed" src="https://github.com/user-attachments/assets/ad466897-709b-4fb2-8cc7-397d1f46f031" />
 
 ## Architecture
 

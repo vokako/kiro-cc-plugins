@@ -4,10 +4,6 @@ Install [Claude Code plugins](https://code.claude.com/docs/en/plugins) into [Kir
 
 Supports marketplace repos (like the [official Anthropic marketplace](https://github.com/anthropics/claude-plugins-official)) and standalone plugin/skill repos.
 
-<img width="5120" height="2818" alt="app-installed" src="https://github.com/user-attachments/assets/ad466897-709b-4fb2-8cc7-397d1f46f031" />
-<img width="5120" height="2818" alt="app-plugins" src="https://github.com/user-attachments/assets/bdd43418-7a16-4f8b-8e45-aaa8e8e0283b" />
-<img width="5120" height="2818" alt="app-sources" src="https://github.com/user-attachments/assets/4fc43c94-562a-44c4-bd18-18c444c0c373" />
-
 ## Install
 
 ### CLI
@@ -137,6 +133,26 @@ The desktop app shows toggle buttons on each component card.
 ├── disabled-skills/     # Parked disabled skills
 └── disabled-agents/     # Parked disabled agents
 ```
+
+## Desktop App Guide
+
+### Step 1: Add Sources
+
+Go to the **Sources** tab and paste a git repository URL (e.g. `https://github.com/anthropics/claude-plugins-official`). Click **ADD** to clone the marketplace. You can add multiple sources — each source card shows its name, URL, and latest commit. Use **↻ UPDATE ALL** to pull the latest from all sources.
+
+<img width="960" alt="app-sources" src="https://github.com/user-attachments/assets/4fc43c94-562a-44c4-bd18-18c444c0c373" />
+
+### Step 2: Browse & Install Plugins
+
+Click a source card to jump to the **Plugins** tab filtered by that source, or switch to the Plugins tab directly. Use the search bar and source filter to find plugins. Click a plugin to see its details and components. Hit **⬡ INSTALL** to install it. Each component card shows an **ON/OFF** toggle to enable or disable individual skills, agents, or MCP servers.
+
+<img width="960" alt="app-plugins" src="https://github.com/user-attachments/assets/bdd43418-7a16-4f8b-8e45-aaa8e8e0283b" />
+
+### Step 3: Manage Installed Plugins
+
+Switch to the **Installed** tab to see all installed plugins as cards. Each card shows its components with enable/disable status — click a component tag to toggle it. Use **✓✓** / **✗✗** to bulk enable or disable all components. Click a card to jump to its detail view in the Plugins tab. Use **✕** to uninstall.
+
+<img width="960" alt="app-installed" src="https://github.com/user-attachments/assets/ad466897-709b-4fb2-8cc7-397d1f46f031" />
 
 ## Architecture
 

@@ -1,6 +1,12 @@
-# kiro-cc-plugins
+<p align="center">
+  <img src="gui/src-tauri/icons/128x128.png" width="96" alt="KiroCCPlugins icon" />
+</p>
 
-Install [Claude Code plugins](https://code.claude.com/docs/en/plugins) into [Kiro](https://kiro.dev).
+<h1 align="center">kiro-cc-plugins</h1>
+
+<p align="center">
+Install <a href="https://code.claude.com/docs/en/plugins">Claude Code plugins</a> into <a href="https://kiro.dev">Kiro</a>.
+</p>
 
 Supports marketplace repos (like the [official Anthropic marketplace](https://github.com/anthropics/claude-plugins-official)) and standalone plugin/skill repos.
 

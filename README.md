@@ -5,7 +5,7 @@
 <h1 align="center">kiro-cc-plugins</h1>
 
 <p align="center">
-Install <a href="https://code.claude.com/docs/en/plugins">Claude Code plugins</a> into <a href="https://kiro.dev">Kiro</a>.
+<em>Install <a href="https://code.claude.com/docs/en/plugins">Claude Code plugins</a> into <a href="https://kiro.dev">Kiro</a>.</em>
 </p>
 
 Supports marketplace repos (like the [official Anthropic marketplace](https://github.com/anthropics/claude-plugins-official)) and standalone plugin/skill repos.

@@ -1,6 +1,6 @@
 [project]
 name = "kiro-cc-plugins"
-version = "0.2.0"
+version = "0.2.1"
 description = "Install Claude Code plugins into Kiro"
 requires-python = ">=3.10"
 dependencies = [

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="gui/src-tauri/icons/128x128.png" width="96" alt="KiroCCPlugins icon" />
+  <img src="gui/src-tauri/icons/icon.png" width="160" alt="KiroCCPlugins icon" />
 </p>
 
 <h1 align="center">kiro-cc-plugins</h1>

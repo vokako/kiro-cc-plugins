@@ -115,13 +115,35 @@ fn set_file_enabled(target_path: &str, parked_root: &Path, enable: bool) -> Resu
     let file_name = active.file_name().and_then(|n| n.to_str()).ok_or_else(|| Error::msg("no file"))?;
     let parked = parked_root.join(file_name);
     std::fs::create_dir_all(parked_root)?;
+
+    // For agent JSON files, also move the companion .md prompt file
+    let companion_md = if active.extension().and_then(|e| e.to_str()) == Some("json") {
+        Some(active.with_extension("md"))
+    } else {
+        None
+    };
+    let parked_md = companion_md.as_ref().map(|p| {
+        parked_root.join(p.file_name().unwrap())
+    });
+
     if enable {
         if active.exists() { return Ok(()); }
         if parked.exists() { std::fs::rename(&parked, &active)?; }
+        if let (Some(cmd), Some(pmd)) = (&companion_md, &parked_md) {
+            if pmd.exists() && !cmd.exists() {
+                std::fs::rename(pmd, cmd)?;
+            }
+        }
     } else {
         if !active.exists() { return Ok(()); }
         if parked.exists() { std::fs::remove_file(&parked)?; }
         std::fs::rename(&active, &parked)?;
+        if let (Some(cmd), Some(pmd)) = (&companion_md, &parked_md) {
+            if cmd.exists() {
+                if pmd.exists() { std::fs::remove_file(pmd)?; }
+                std::fs::rename(cmd, pmd)?;
+            }
+        }
     }
     Ok(())
 }
@@ -252,6 +274,133 @@ fn map_tools(fm: &Value) -> Vec<String> {
     }
 }
 
+// ── hooks conversion ──────────────────────────────────────────────────────
+
+/// Map a Claude Code hook event name to Kiro's hook event name.
+fn map_hook_event(cc_event: &str) -> Option<&'static str> {
+    match cc_event {
+        "PreToolUse" => Some("preToolUse"),
+        "PostToolUse" => Some("postToolUse"),
+        "Stop" => Some("stop"),
+        "UserPromptSubmit" => Some("userPromptSubmit"),
+        "SessionStart" => Some("agentSpawn"),
+        _ => None,
+    }
+}
+
+/// Map a Claude Code tool matcher to Kiro tool name.
+fn map_hook_matcher(cc_matcher: &str) -> String {
+    let mapping: &[(&str, &str)] = &[
+        ("Bash", "execute_bash"),
+        ("Edit", "fs_write"),
+        ("Write", "fs_write"),
+        ("Read", "fs_read"),
+        ("Glob", "glob"),
+        ("Grep", "grep"),
+    ];
+    // Handle "Edit|Write" style matchers
+    let parts: Vec<&str> = cc_matcher.split('|').collect();
+    let mapped: Vec<String> = parts
+        .iter()
+        .map(|p| {
+            let trimmed = p.trim();
+            mapping
+                .iter()
+                .find(|(k, _)| *k == trimmed)
+                .map(|(_, v)| v.to_string())
+                .unwrap_or_else(|| trimmed.to_lowercase())
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    mapped.join("|")
+}
+
+/// Convert Claude Code hooks JSON (from hooks.json or agent frontmatter) to Kiro hooks format.
+/// Returns a JSON object like: {"preToolUse": [...], "postToolUse": [...], ...}
+pub fn convert_hooks(cc_hooks: &Value, plugin_dir: Option<&Path>) -> Value {
+    let Some(hooks_obj) = cc_hooks.as_object() else {
+        return Value::Object(Map::new());
+    };
+
+    let mut kiro_hooks: Map<String, Value> = Map::new();
+
+    for (event_name, groups) in hooks_obj {
+        let Some(kiro_event) = map_hook_event(event_name) else {
+            continue;
+        };
+        let Some(groups_arr) = groups.as_array() else {
+            continue;
+        };
+
+        let mut kiro_entries: Vec<Value> = Vec::new();
+
+        for group in groups_arr {
+            let matcher = group.get("matcher").and_then(|v| v.as_str()).unwrap_or("*");
+            let Some(handlers) = group.get("hooks").and_then(|v| v.as_array()) else {
+                continue;
+            };
+
+            for handler in handlers {
+                // Only convert command-type hooks
+                let hook_type = handler.get("type").and_then(|v| v.as_str()).unwrap_or("command");
+                if hook_type != "command" {
+                    continue;
+                }
+                let Some(command) = handler.get("command").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+
+                // Replace ${CLAUDE_PLUGIN_ROOT} with actual plugin dir if available
+                let resolved_command = if let Some(dir) = plugin_dir {
+                    command
+                        .replace("${CLAUDE_PLUGIN_ROOT}", &dir.to_string_lossy())
+                        .replace("$CLAUDE_PLUGIN_ROOT", &dir.to_string_lossy())
+                } else {
+                    command.to_string()
+                };
+
+                let mut entry = Map::new();
+                entry.insert("command".into(), Value::String(resolved_command));
+
+                // Add matcher if not wildcard
+                if matcher != "*" && !matcher.is_empty() {
+                    entry.insert("matcher".into(), Value::String(map_hook_matcher(matcher)));
+                }
+
+                // Add timeout if specified
+                if let Some(timeout) = handler.get("timeout").and_then(|v| v.as_u64()) {
+                    entry.insert("timeout_ms".into(), Value::Number((timeout * 1000).into()));
+                }
+
+                kiro_entries.push(Value::Object(entry));
+            }
+        }
+
+        if !kiro_entries.is_empty() {
+            kiro_hooks.insert(kiro_event.into(), Value::Array(kiro_entries));
+        }
+    }
+
+    Value::Object(kiro_hooks)
+}
+
+/// Load and convert hooks from a plugin's hooks/hooks.json file.
+pub fn load_plugin_hooks(plugin_dir: &Path) -> Value {
+    let hooks_file = plugin_dir.join("hooks").join("hooks.json");
+    if !hooks_file.exists() {
+        return Value::Object(Map::new());
+    }
+    let Ok(text) = std::fs::read_to_string(&hooks_file) else {
+        return Value::Object(Map::new());
+    };
+    let Ok(data) = serde_json::from_str::<Value>(&text) else {
+        return Value::Object(Map::new());
+    };
+    let hooks_val = data.get("hooks").unwrap_or(&data);
+    convert_hooks(hooks_val, Some(plugin_dir))
+}
+
 // ── converters ───────────────────────────────────────────────────────────
 
 fn write_json_file(path: &Path, value: &Value) -> Result<()> {
@@ -277,6 +426,44 @@ pub fn convert_agent(
         format!("{original_desc} [from cc:{plugin_name}]")
     };
 
+    // Derive plugin directory from component path
+    // comp.path is like <plugin_dir>/agents/foo.md or <plugin_dir>/commands/foo.md
+    let plugin_dir = comp.path.parent().and_then(|p| p.parent());
+
+    // Convert hooks from agent frontmatter
+    let mut hooks = if let Some(hooks_val) = fm.get("hooks") {
+        convert_hooks(hooks_val, plugin_dir)
+    } else {
+        Value::Object(Map::new())
+    };
+
+    // Also load plugin-level hooks/hooks.json and merge
+    if let Some(pd) = plugin_dir {
+        let plugin_hooks = load_plugin_hooks(pd);
+        if let (Some(target), Some(source)) = (hooks.as_object_mut(), plugin_hooks.as_object()) {
+            for (k, v) in source {
+                if let Some(existing) = target.get_mut(k) {
+                    // Merge arrays
+                    if let (Some(arr), Some(new_arr)) = (existing.as_array_mut(), v.as_array()) {
+                        arr.extend(new_arr.clone());
+                    }
+                } else {
+                    target.insert(k.clone(), v.clone());
+                }
+            }
+        }
+    }
+
+    // Write prompt to a separate .md file and reference it
+    let target = kiro_agent_path(&comp.name, plugin_name, source_name);
+    let prompt_path = target.with_extension("md");
+    let prompt_content = comp.body.trim();
+    if let Some(parent) = prompt_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&prompt_path, format!("{prompt_content}\n"))?;
+    let prompt_filename = prompt_path.file_name().unwrap().to_string_lossy().to_string();
+
     let mut cfg = Map::new();
     cfg.insert(
         "$schema".into(),
@@ -287,14 +474,33 @@ pub fn convert_agent(
     );
     cfg.insert("name".into(), Value::String(comp.name.clone()));
     cfg.insert("description".into(), Value::String(description));
-    cfg.insert("prompt".into(), Value::String(comp.body.trim().to_string()));
+    cfg.insert("prompt".into(), Value::String(format!("file://./{prompt_filename}")));
     cfg.insert(
         "tools".into(),
         Value::Array(map_tools(fm).into_iter().map(Value::String).collect()),
     );
     cfg.insert("allowedTools".into(), Value::Array(vec![]));
-    cfg.insert("resources".into(), Value::Array(vec![]));
-    cfg.insert("hooks".into(), Value::Object(Map::new()));
+    // Agents in Claude Code are isolated subagents — don't inject global resources/MCP.
+    // Commands run as main-thread agents in Kiro, so they should access global resources.
+    let is_subagent = comp.component_type == "agent";
+    if is_subagent {
+        cfg.insert("resources".into(), Value::Array(vec![]));
+    } else {
+        let kiro = crate::models::kiro_home();
+        cfg.insert(
+            "resources".into(),
+            Value::Array(vec![
+                // Global (absolute path)
+                Value::String(format!("file://{}/steering/**/*.md", kiro.display())),
+                Value::String(format!("skill://{}/skills/**/SKILL.md", kiro.display())),
+                // Workspace (relative path, resolved from cwd)
+                Value::String("file://.kiro/steering/**/*.md".into()),
+                Value::String("skill://.kiro/skills/**/SKILL.md".into()),
+            ]),
+        );
+        cfg.insert("includeMcpJson".into(), Value::Bool(true));
+    }
+    cfg.insert("hooks".into(), hooks);
     cfg.insert("toolsSettings".into(), Value::Object(Map::new()));
 
     if let Some(model) = fm.get("model").and_then(|v| v.as_str()) {
@@ -307,7 +513,6 @@ pub fn convert_agent(
         cfg.insert("model".into(), Value::String(mapped.into()));
     }
 
-    let target = kiro_agent_path(&comp.name, plugin_name, source_name);
     write_json_file(&target, &Value::Object(cfg))?;
     Ok(ComponentRecord {
         component_type: comp.component_type.clone(),
@@ -418,6 +623,12 @@ pub fn convert_mcp(
                 }
             }
             let full_key = mcp_server_key(server_name, plugin_name, source_name);
+            // Preserve 'disabled' flag if user had disabled this server previously
+            if let Some(existing) = settings.get("mcpServers").and_then(|v| v.get(&full_key)) {
+                if let Some(disabled) = existing.get("disabled") {
+                    kiro_server.insert("disabled".into(), disabled.clone());
+                }
+            }
             settings["mcpServers"][full_key.clone()] = Value::Object(kiro_server);
             added_keys.push(full_key);
         }
@@ -473,10 +684,42 @@ pub fn remove_converted(target_path: &str, mcp_keys: Option<&[String]>) -> Resul
     } else if p.exists() {
         let parent = p.parent().map(|x| x.to_path_buf());
         std::fs::remove_file(&p).ok();
+        // Agents: also remove the companion .md prompt file
+        if p.extension().and_then(|e| e.to_str()) == Some("json") {
+            let prompt_file = p.with_extension("md");
+            if prompt_file.exists() {
+                std::fs::remove_file(&prompt_file).ok();
+            }
+        }
         // Skills: remove the whole skill dir (parent named skills/<...>)
         if let Some(parent) = parent {
             if parent.parent().and_then(|x| x.file_name()).map(|n| n == "skills").unwrap_or(false) {
                 std::fs::remove_dir_all(&parent).ok();
+            }
+        }
+    } else {
+        // File not at active location — check if it was disabled (parked elsewhere)
+        if let Some(file_name) = p.file_name().and_then(|n| n.to_str()) {
+            // Check disabled-agents dir
+            let parked_agent = disabled_agents_dir().join(file_name);
+            if parked_agent.exists() {
+                std::fs::remove_file(&parked_agent).ok();
+                // companion .md
+                if p.extension().and_then(|e| e.to_str()) == Some("json") {
+                    let parked_md = parked_agent.with_extension("md");
+                    if parked_md.exists() {
+                        std::fs::remove_file(&parked_md).ok();
+                    }
+                }
+            }
+            // Check disabled-skills dir (only for skill SKILL.md paths)
+            if let Some(parent) = p.parent() {
+                if let Some(dir_name) = parent.file_name().and_then(|n| n.to_str()) {
+                    let parked_skill = disabled_skills_dir().join(dir_name);
+                    if parked_skill.is_dir() {
+                        std::fs::remove_dir_all(&parked_skill).ok();
+                    }
+                }
             }
         }
     }

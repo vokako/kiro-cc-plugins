@@ -169,6 +169,13 @@ fn plugin_list(args: Value) -> Result<Value, String> {
                         .map(|c| json!({"type": c.component_type, "name": c.name, "description": c.frontmatter.get("description").and_then(|v| v.as_str()).unwrap_or("")}))
                         .collect();
                     entry.insert("components".into(), Value::Array(cl));
+                    let lsp_meta = if p.has_lsp_servers { Some(&json!({"lspServers": true})) } else { None };
+                    let sk: Vec<Value> = scanner::scan_skipped_with_meta(lp, lsp_meta).into_iter()
+                        .map(|s| json!({"type": s.component_type, "name": s.name, "reason": s.reason}))
+                        .collect();
+                    if !sk.is_empty() {
+                        entry.insert("skipped".into(), Value::Array(sk));
+                    }
                 }
             }
             result.push(Value::Object(entry));
@@ -182,6 +189,7 @@ fn plugin_detail(args: Value) -> Result<Value, String> {
     let (source_name, plugin) = find_plugin(name).ok_or_else(|| format!("Plugin '{name}' not found"))?;
     let installed = registry::get_installed_plugin(name);
     let mut components = Vec::new();
+    let mut skipped = Vec::new();
     if let Some(lp) = &plugin.local_path {
         if lp.is_dir() {
             let comps = scanner::scan_plugin(lp, plugin.skill_filter.as_deref()).map_err(err_str)?;
@@ -193,9 +201,13 @@ fn plugin_detail(args: Value) -> Result<Value, String> {
                 if let Some(en) = enabled { obj["enabled"] = json!(en); }
                 obj
             }).collect();
+            let lsp_meta = if plugin.has_lsp_servers { Some(&json!({"lspServers": true})) } else { None };
+            skipped = scanner::scan_skipped_with_meta(lp, lsp_meta).into_iter()
+                .map(|s| json!({"type": s.component_type, "name": s.name, "reason": s.reason}))
+                .collect();
         }
     }
-    Ok(json!({"name": name, "description": plugin.description, "category": plugin.category, "source": source_name, "installed": installed.is_some(), "components": components}))
+    Ok(json!({"name": name, "description": plugin.description, "category": plugin.category, "source": source_name, "installed": installed.is_some(), "components": components, "skipped": skipped}))
 }
 
 fn plugin_add(args: Value) -> Result<Value, String> {
@@ -303,7 +315,16 @@ fn plugin_update(args: Value) -> Result<Value, String> {
             results.push(json!({"name": p.plugin_name, "status": "not_found"})); continue;
         };
         let Some(lp) = plugin.local_path.clone() else { results.push(json!({"name": p.plugin_name, "status": "not_found"})); continue; };
-        for c in &p.components { converter::remove_converted(&c.target_path, c.mcp_keys.as_deref()).map_err(err_str)?; }
+        // Capture which components were disabled BEFORE remove/re-convert, so we can restore state
+        let was_disabled: HashSet<(String, String)> = p.components.iter()
+            .filter(|c| !converter::is_component_enabled(&c.component_type, &c.target_path, c.mcp_keys.as_deref()))
+            .map(|c| (c.component_type.clone(), c.name.clone()))
+            .collect();
+        // Clean up old components, but skip MCP so 'disabled' flags survive (convert_mcp overwrites anyway)
+        for c in &p.components {
+            if c.component_type == "mcp" { continue; }
+            converter::remove_converted(&c.target_path, c.mcp_keys.as_deref()).map_err(err_str)?;
+        }
         let comps = scanner::scan_plugin(&lp, plugin.skill_filter.as_deref()).map_err(err_str)?;
         let comps: Vec<_> = comps.into_iter().filter(|c| only_types.as_ref().is_none_or(|f| f.contains(&c.component_type))).collect();
         let commit = source::list_sources().into_iter().find(|s| s.name == p.source_name).map(|s| s.commit).unwrap_or_default();
@@ -311,6 +332,12 @@ fn plugin_update(args: Value) -> Result<Value, String> {
         for comp in comps {
             if converter::check_conflict(&comp.name, &comp.component_type, &p.plugin_name, &p.source_name).is_some() { continue; }
             if let Some(rec) = converter::convert_component(&comp, &p.plugin_name, &p.source_name).map_err(err_str)? { converted.push(rec); }
+        }
+        // Restore disabled state for components that were previously disabled
+        for rec in &converted {
+            if was_disabled.contains(&(rec.component_type.clone(), rec.name.clone())) {
+                let _ = converter::set_component_enabled(&rec.component_type, &rec.target_path, rec.mcp_keys.as_deref(), false);
+            }
         }
         let n = converted.len();
         registry::add_installed(&p.plugin_name, &p.source_name, converted, &commit, &p.scope).map_err(err_str)?;

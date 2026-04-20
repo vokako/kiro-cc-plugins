@@ -153,13 +153,16 @@
   <div class="list-panel">
     <div class="list-header">
       <h2><span class="hm">▸</span> REGISTRY</h2>
-      <label class="toggle">
-        <span class="toggle-label">{statusFilter === "installed" ? "Installed" : "All"}</span>
-        <input type="checkbox" checked={statusFilter === "installed"} onchange={(e) => statusFilter = e.target.checked ? "installed" : "all"} />
-        <span class="toggle-track">
-          <span class="toggle-thumb"></span>
-        </span>
-      </label>
+      <button
+        class="seg-toggle"
+        class:seg-on={statusFilter === "installed"}
+        onclick={() => statusFilter = statusFilter === "installed" ? "all" : "installed"}
+        title="Filter: {statusFilter === 'installed' ? 'Installed only' : 'All plugins'}"
+      >
+        <span class="seg-thumb"></span>
+        <span class="seg-opt seg-opt-left">ALL</span>
+        <span class="seg-opt seg-opt-right">INSTALLED</span>
+      </button>
     </div>
 
     <div class="search-wrap">
@@ -199,11 +202,14 @@
             onclick={() => showDetail(p.name)}
             style="animation-delay: {Math.min(i * 20, 400)}ms"
           >
-            <span class="row-status {STATUS_CLASS[p.status]}">{STATUS_ICON[p.status]}</span>
+            <span class="row-status {STATUS_CLASS[p.status]}" title={p.status}></span>
             <div class="row-text">
               <span class="row-name">{p.name}</span>
               <span class="row-desc">{p.description || ""}</span>
             </div>
+            {#if p.skipped?.length}
+              <span class="row-skipped" title="{p.skipped.length} component(s) not converted: {p.skipped.map(s => s.type).join(', ')}">⊘ {p.skipped.length}</span>
+            {/if}
             {#if p.category}
               <span class="row-cat">{p.category}</span>
             {/if}
@@ -279,6 +285,20 @@
             </div>
           </div>
         {/if}
+        {#if detail.skipped?.length}
+          <div class="comp-section skipped-section">
+            <h4><span class="hm">▸</span> SKIPPED <span class="comp-count">{detail.skipped.length}</span></h4>
+            <div class="skipped-list">
+              {#each detail.skipped as s}
+                <div class="skipped-item">
+                  <span class="skipped-type">{s.type}</span>
+                  <span class="skipped-name">{s.name}</span>
+                  <span class="skipped-reason">{s.reason}</span>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
       </div>
     {:else if selected}
       <div class="empty"><span class="spinner"></span></div>
@@ -331,49 +351,51 @@
 
   .hm { color: var(--amber); }
 
-  .toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .seg-toggle {
+    position: relative;
+    display: inline-flex;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1px;
     cursor: pointer;
     -webkit-app-region: no-drag;
+    overflow: hidden;
   }
 
-  .toggle input { display: none; }
-
-  .toggle-track {
-    width: 28px;
-    height: 14px;
-    background: var(--border);
-    border-radius: 7px;
-    position: relative;
-    transition: background 0.2s;
-  }
-
-  .toggle input:checked + .toggle-track {
-    background: var(--amber);
-  }
-
-  .toggle-thumb {
+  .seg-thumb {
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 10px;
-    height: 10px;
-    background: var(--text-bright);
-    border-radius: 50%;
-    transition: transform 0.2s;
+    top: 1px;
+    left: 1px;
+    width: calc(50% - 1px);
+    height: calc(100% - 2px);
+    background: var(--bg-surface);
+    border-radius: 7px;
+    transition: transform 0.2s ease;
+    z-index: 0;
   }
 
-  .toggle input:checked + .toggle-track .toggle-thumb {
-    transform: translateX(14px);
+  .seg-toggle.seg-on .seg-thumb {
+    transform: translateX(100%);
   }
 
-  .toggle-label {
+  .seg-opt {
+    position: relative;
+    z-index: 1;
     font-family: "JetBrains Mono", monospace;
-    font-size: 10px;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
     color: var(--text-dim);
-    letter-spacing: 0.05em;
+    transition: color 0.2s;
+    user-select: none;
+  }
+
+  .seg-toggle:not(.seg-on) .seg-opt-left {
+    color: var(--text);
+  }
+  .seg-toggle.seg-on .seg-opt-right {
+    color: var(--text);
   }
 
   .search-wrap {
@@ -494,14 +516,17 @@
 
   .row-status {
     flex-shrink: 0;
-    margin-top: 3px;
-    font-size: 10px;
+    margin-top: 7px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    box-sizing: border-box;
   }
 
-  .st-installed { color: var(--green); }
-  .st-available { color: var(--green); opacity: 0.6; }
-  .st-fetchable { color: var(--amber); }
-  .st-unavailable { color: var(--red); opacity: 0.5; }
+  .st-installed { background: var(--green); }
+  .st-available { background: transparent; border: 1.5px solid var(--green); }
+  .st-fetchable { background: transparent; border: 1.5px solid var(--amber); }
+  .st-unavailable { background: transparent; border: 1.5px solid var(--red); opacity: 0.6; }
 
   .row-text {
     flex: 1;
@@ -531,6 +556,19 @@
     font-size: 9px;
     color: var(--text-dim);
     background: var(--bg-surface);
+    padding: 2px 6px;
+    border-radius: 2px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    letter-spacing: 0.05em;
+  }
+
+  .row-skipped {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    color: #e0a030;
+    background: rgba(224, 160, 48, 0.08);
+    border: 1px solid rgba(224, 160, 48, 0.3);
     padding: 2px 6px;
     border-radius: 2px;
     flex-shrink: 0;
@@ -770,6 +808,38 @@
     font-size: 11px;
     color: var(--text-dim);
     line-height: 1.4;
+  }
+
+  /* ── Skipped section ── */
+  .skipped-section {
+    margin-top: 12px;
+    opacity: 0.75;
+  }
+  .skipped-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 4px;
+  }
+  .skipped-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .skipped-type {
+    font-weight: 600;
+    color: #e0a030;
+    min-width: 60px;
+  }
+  .skipped-name {
+    color: var(--text);
+    min-width: 80px;
+  }
+  .skipped-reason {
+    color: var(--text-dim);
+    font-style: italic;
   }
 
   /* ── Empty states ── */

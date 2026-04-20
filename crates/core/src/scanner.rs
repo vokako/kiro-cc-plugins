@@ -15,6 +15,14 @@ pub struct ScannedComponent {
     pub body: String,
 }
 
+/// An unsupported component that was detected but cannot be converted.
+#[derive(Debug, Clone)]
+pub struct SkippedComponent {
+    pub component_type: String, // hooks | hooks-handlers | lsp | runtime
+    pub name: String,
+    pub reason: String,
+}
+
 fn parse_frontmatter(text: &str) -> (Value, String) {
     // Matches: ---\n<yaml>\n---\n<body>
     let bytes = text.as_bytes();
@@ -176,4 +184,93 @@ pub fn scan_plugin(plugin_dir: &Path, skill_filter: Option<&[String]>) -> Result
     }
 
     Ok(components)
+}
+
+/// Detect unsupported components in a plugin directory that cannot be converted.
+pub fn scan_skipped(plugin_dir: &Path) -> Vec<SkippedComponent> {
+    scan_skipped_with_meta(plugin_dir, None)
+}
+
+/// Detect unsupported components, optionally checking marketplace metadata for lspServers.
+pub fn scan_skipped_with_meta(plugin_dir: &Path, marketplace_entry: Option<&Value>) -> Vec<SkippedComponent> {
+    let mut skipped = Vec::new();
+
+    // hooks/ directory
+    if plugin_dir.join("hooks").is_dir() {
+        // Check if hooks.json exists and has convertible command hooks
+        let hooks_json = plugin_dir.join("hooks").join("hooks.json");
+        let has_convertible = hooks_json.exists();
+        let reason = if has_convertible {
+            "Partially converted: command hooks injected into agents, but global hook scope not supported"
+        } else {
+            "Kiro has no hook system"
+        };
+        skipped.push(SkippedComponent {
+            component_type: "hooks".into(),
+            name: "hooks".into(),
+            reason: reason.into(),
+        });
+    }
+
+    // hooks.json at root level
+    if plugin_dir.join("hooks.json").exists() {
+        skipped.push(SkippedComponent {
+            component_type: "hooks".into(),
+            name: "hooks.json".into(),
+            reason: "Kiro has no hook system".into(),
+        });
+    }
+
+    // hooks-handlers/
+    if plugin_dir.join("hooks-handlers").is_dir() {
+        skipped.push(SkippedComponent {
+            component_type: "hooks-handlers".into(),
+            name: "hooks-handlers".into(),
+            reason: "Kiro has no hook system".into(),
+        });
+    }
+
+    // lspServers in plugin.json or marketplace entry
+    let mut has_lsp = false;
+    for fname in &[".claude-plugin/plugin.json", "plugin.json"] {
+        let pj = plugin_dir.join(fname);
+        if pj.exists() {
+            if let Ok(text) = std::fs::read_to_string(&pj) {
+                if let Ok(data) = serde_json::from_str::<Value>(&text) {
+                    if data.get("lspServers").is_some() {
+                        has_lsp = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if !has_lsp {
+        if let Some(entry) = marketplace_entry {
+            if entry.get("lspServers").is_some() {
+                has_lsp = true;
+            }
+        }
+    }
+    if has_lsp {
+        skipped.push(SkippedComponent {
+            component_type: "lsp".into(),
+            name: "lspServers".into(),
+            reason: "Kiro does not support custom LSP configuration".into(),
+        });
+    }
+
+    // Runtime code directories (core/, utils/, matchers/)
+    for dir_name in &["core", "utils", "matchers"] {
+        let d = plugin_dir.join(dir_name);
+        if d.is_dir() {
+            skipped.push(SkippedComponent {
+                component_type: "runtime".into(),
+                name: dir_name.to_string(),
+                reason: "Runtime code dependency, not convertible".into(),
+            });
+        }
+    }
+
+    skipped
 }

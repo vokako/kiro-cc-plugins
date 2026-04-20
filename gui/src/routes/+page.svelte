@@ -332,7 +332,8 @@
     background: transparent;
     border: 1px solid var(--border);
     padding: 4px 10px;
-    font-size: 14px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
     color: var(--text-dim);
     border-radius: 3px;
     transition: all 0.2s;

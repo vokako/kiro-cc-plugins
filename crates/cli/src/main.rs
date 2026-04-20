@@ -315,6 +315,12 @@ fn find_plugin_source(name: &str) -> Result<Option<(String, Vec<MarketplacePlugi
     }
 }
 
+fn find_plugin_local_path(source_name: &str, plugin_name: &str) -> Option<PathBuf> {
+    let plugins = source::parse_marketplace(source_name).ok()?;
+    let plugin = plugins.into_iter().find(|p| p.name == plugin_name)?;
+    plugin.local_path.filter(|lp| lp.is_dir())
+}
+
 fn resolve_source(source_name: Option<&str>) -> Result<String> {
     if let Some(s) = source_name {
         return Ok(s.to_string());
@@ -431,8 +437,8 @@ fn list_installed(type_filter: &Option<HashSet<String>>) -> Result<()> {
         return Ok(());
     }
     let mut t = make_table();
-    t.set_header(vec!["Plugin", "Source", "Components", "Installed"]);
-    for p in items {
+    t.set_header(vec!["Plugin", "Source", "Components", "Skipped", "Installed"]);
+    for p in &items {
         converter::set_scope(models::Scope::from_str(&p.scope));
         let comps: Vec<_> = p.components.iter().filter(|c| type_filter.as_ref().is_none_or(|f| f.contains(&c.component_type))).collect();
         let summary = comps.iter().map(|c| {
@@ -440,8 +446,16 @@ fn list_installed(type_filter: &Option<HashSet<String>>) -> Result<()> {
             let icon = if enabled { "✓" } else { "✗" };
             format!("{icon} {}:{}", c.component_type, c.name)
         }).collect::<Vec<_>>().join(", ");
+        let skipped_summary = find_plugin_local_path(&p.source_name, &p.plugin_name)
+            .map(|lp| {
+                let sk = scanner::scan_skipped(&lp);
+                if sk.is_empty() { String::new() } else {
+                    sk.iter().map(|s| s.component_type.as_str()).collect::<Vec<_>>().join(", ")
+                }
+            })
+            .unwrap_or_default();
         let date = p.installed_at.chars().take(10).collect::<String>();
-        t.add_row(vec![p.plugin_name, p.source_name, summary, date]);
+        t.add_row(vec![p.plugin_name.clone(), p.source_name.clone(), summary, skipped_summary, date]);
     }
     println!("{t}");
     Ok(())
@@ -519,15 +533,31 @@ fn show_plugin_detail(
 
     if components.is_empty() {
         dim("  No convertible components found.");
-        return Ok(());
+    } else {
+        let mut t = make_table();
+        t.set_header(vec!["Type", "Name", "Description"]);
+        for c in &components {
+            let desc = c.frontmatter.get("description").and_then(|v| v.as_str()).unwrap_or("");
+            t.add_row(vec![c.component_type.clone(), c.name.clone(), desc.to_string()]);
+        }
+        println!("{t}");
     }
-    let mut t = make_table();
-    t.set_header(vec!["Type", "Name", "Description"]);
-    for c in &components {
-        let desc = c.frontmatter.get("description").and_then(|v| v.as_str()).unwrap_or("");
-        t.add_row(vec![c.component_type.clone(), c.name.clone(), desc.to_string()]);
+
+    // Show skipped (unsupported) components
+    let lsp_meta: serde_json::Value;
+    let lsp_ref = if plugin.has_lsp_servers {
+        lsp_meta = serde_json::json!({"lspServers": true});
+        Some(&lsp_meta)
+    } else {
+        None
+    };
+    let skipped = scanner::scan_skipped_with_meta(lp, lsp_ref);
+    if !skipped.is_empty() {
+        println!("\n  {} Skipped (unsupported):", style("⚠").yellow());
+        for s in &skipped {
+            println!("    {} {}: {} — {}", style("⊘").dim(), s.component_type, s.name, style(&s.reason).dim());
+        }
     }
-    println!("{t}");
 
     if installed.is_some() {
         let agents: Vec<&_> = components.iter().filter(|c| c.component_type == "agent" || c.component_type == "command").collect();
@@ -745,7 +775,14 @@ fn update_cmd(plugin_name: Option<&str>, update_all: bool, only: Option<&str>) -
             warn(format!("{} has no local path", p.plugin_name));
             continue;
         };
+        // Capture which components were disabled BEFORE remove/re-convert, so we can restore state
+        let was_disabled: HashSet<(String, String)> = p.components.iter()
+            .filter(|c| !converter::is_component_enabled(&c.component_type, &c.target_path, c.mcp_keys.as_deref()))
+            .map(|c| (c.component_type.clone(), c.name.clone()))
+            .collect();
+        // Clean up old components, but skip MCP so 'disabled' flags survive (convert_mcp overwrites anyway)
         for c in &p.components {
+            if c.component_type == "mcp" { continue; }
             converter::remove_converted(&c.target_path, c.mcp_keys.as_deref()).map_err(|e| anyhow!("{e}"))?;
         }
         let components = scanner::scan_plugin(&local_path, plugin.skill_filter.as_deref()).map_err(|e| anyhow!("{e}"))?;
@@ -761,6 +798,12 @@ fn update_cmd(plugin_name: Option<&str>, update_all: bool, only: Option<&str>) -
             }
             if let Some(rec) = converter::convert_component(&comp, &p.plugin_name, &p.source_name).map_err(|e| anyhow!("{e}"))? {
                 converted.push(rec);
+            }
+        }
+        // Restore disabled state for components that were previously disabled
+        for rec in &converted {
+            if was_disabled.contains(&(rec.component_type.clone(), rec.name.clone())) {
+                let _ = converter::set_component_enabled(&rec.component_type, &rec.target_path, rec.mcp_keys.as_deref(), false);
             }
         }
         registry::add_installed(&p.plugin_name, &p.source_name, converted.clone(), &commit, &p.scope).map_err(|e| anyhow!("{e}"))?;
@@ -839,6 +882,13 @@ fn status_cmd() -> Result<()> {
                 p.components.len(),
                 types.join(", "),
             );
+            // Show skipped components if source is available
+            if let Some(lp) = find_plugin_local_path(&p.source_name, &p.plugin_name) {
+                let skipped = scanner::scan_skipped(&lp);
+                for s in &skipped {
+                    println!("    {} {}: {} ({})", style("⊘").yellow(), s.component_type, s.name, style(&s.reason).dim());
+                }
+            }
         }
     }
 

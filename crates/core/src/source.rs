@@ -242,6 +242,7 @@ pub struct MarketplacePlugin {
     pub source: Value,
     pub local_path: Option<PathBuf>,
     pub skill_filter: Option<Vec<String>>,
+    pub has_lsp_servers: bool,
 }
 
 pub fn parse_marketplace(source_name: &str) -> Result<Vec<MarketplacePlugin>> {
@@ -267,6 +268,7 @@ pub fn parse_marketplace(source_name: &str) -> Result<Vec<MarketplacePlugin>> {
             source: Value::String(".".into()),
             local_path: Some(repo_dir),
             skill_filter: None,
+            has_lsp_servers: false,
         }]);
     }
 
@@ -292,6 +294,8 @@ pub fn parse_marketplace(source_name: &str) -> Result<Vec<MarketplacePlugin>> {
             _ => None,
         };
 
+        let has_lsp_servers = entry.get("lspServers").is_some();
+
         plugins.push(MarketplacePlugin {
             name,
             description,
@@ -299,6 +303,7 @@ pub fn parse_marketplace(source_name: &str) -> Result<Vec<MarketplacePlugin>> {
             source: source_val,
             local_path,
             skill_filter,
+            has_lsp_servers,
         });
     }
     Ok(plugins)

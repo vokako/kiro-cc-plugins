@@ -30,7 +30,7 @@ Download `.dmg` (macOS) or `.exe` (Windows) from the [releases page](https://git
 
 #### macOS: "App is damaged" or "cannot be opened"
 
-The `.dmg` is not code-signed (Apple developer certificates cost $99/year). macOS Gatekeeper blocks unsigned apps by default. After dragging the app to `/Applications`, run this once to remove the quarantine flag:
+The `.dmg` is not code-signed, so macOS Gatekeeper blocks it by default. After dragging the app to `/Applications`, run this once to remove the quarantine flag:
 
 ```bash
 xattr -d com.apple.quarantine /Applications/KiroCCPlugins.app

@@ -28,6 +28,18 @@ No system `git`, Python, or other runtime required — single self-contained bin
 
 Download `.dmg` (macOS) or `.exe` (Windows) from the [releases page](https://github.com/vokako/kiro-cc-plugins/releases).
 
+#### macOS: "App is damaged" or "cannot be opened"
+
+The `.dmg` is not code-signed (Apple developer certificates cost $99/year). macOS Gatekeeper blocks unsigned apps by default. After dragging the app to `/Applications`, run this once to remove the quarantine flag:
+
+```bash
+xattr -d com.apple.quarantine /Applications/KiroCCPlugins.app
+```
+
+Then open the app normally. Alternatively, right-click the app → **Open** → **Open** in the warning dialog (only works for some macOS versions).
+
+If you prefer to build from source instead, see [Architecture](#architecture) below.
+
 ## Desktop App Guide
 
 ### Step 1: Add Sources

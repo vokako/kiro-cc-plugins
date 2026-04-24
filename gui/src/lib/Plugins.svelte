@@ -59,11 +59,11 @@
     }
   }
 
-  async function showDetail(name) {
+  async function showDetail(name, source = null) {
     selected = name;
     detail = null;
     try {
-      detail = await api.plugins.detail(name);
+      detail = await api.plugins.detail(name, source);
     } catch (e) {
       error = e.message;
     }
@@ -199,7 +199,7 @@
           <button
             class="plugin-row"
             class:active={selected === p.name}
-            onclick={() => showDetail(p.name)}
+            onclick={() => showDetail(p.name, p.source_name)}
             style="animation-delay: {Math.min(i * 20, 400)}ms"
           >
             <span class="row-status {STATUS_CLASS[p.status]}" title={p.status}></span>

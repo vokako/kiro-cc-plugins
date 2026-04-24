@@ -100,6 +100,40 @@ pub fn list_sources() -> Vec<Source> {
 
 pub fn add_source(url: &str, name: Option<&str>) -> Result<Source> {
     let url = normalize_git_url(url);
+    let identity = repo_identity(&url);
+
+    // Check for duplicates: same repo already registered as source, or referenced
+    // by a plugin entry in an existing marketplace source.
+    if let Some(id) = &identity {
+        for existing in list_sources() {
+            if repo_identity(&existing.url).as_ref() == Some(id) {
+                return Err(Error::msg(format!(
+                    "Source already exists: '{}' ({})",
+                    existing.name, existing.url
+                )));
+            }
+            if let Ok(plugins) = parse_marketplace(&existing.name) {
+                for p in plugins {
+                    if let Some(spec) = p.source.as_object() {
+                        let ref_url = match spec.get("source").and_then(|v| v.as_str()).unwrap_or("") {
+                            "url" | "git-subdir" => spec.get("url").and_then(|v| v.as_str()).map(String::from),
+                            "github" => spec.get("repo").and_then(|v| v.as_str()).map(|r| format!("https://github.com/{r}.git")),
+                            _ => None,
+                        };
+                        if let Some(ref_url) = ref_url {
+                            if repo_identity(&ref_url).as_ref() == Some(id) {
+                                return Err(Error::msg(format!(
+                                    "This repo is already referenced as plugin '{}' via source '{}'. Install it with: add {}",
+                                    p.name, existing.name, p.name
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let name = name.map(|s| s.to_string()).unwrap_or_else(|| derive_source_name(&url));
     let repo_dir = cache_dir_for(&name);
     std::fs::create_dir_all(cache_dir())?;
@@ -182,6 +216,36 @@ fn normalize_git_url(url: &str) -> String {
 
     // Already a clone-ready URL; ensure .git suffix for https to improve consistency
     url.to_string()
+}
+
+/// Extract a canonical identity key from any git URL form.
+/// Returns lowercase "host/owner/repo" (without .git, .git suffix, or protocol).
+/// Returns None if the URL can't be parsed as a recognizable git URL.
+fn repo_identity(url: &str) -> Option<String> {
+    let url = url.trim();
+    // git@host:owner/repo.git → host/owner/repo
+    if let Some(rest) = url.strip_prefix("git@") {
+        if let Some((host, path)) = rest.split_once(':') {
+            let path = path.trim_start_matches('/').trim_end_matches(".git");
+            return Some(format!("{}/{}", host.to_lowercase(), path.to_lowercase()));
+        }
+    }
+    // ssh://git@host/owner/repo.git or https://host/owner/repo(.git)
+    let rest = url
+        .strip_prefix("ssh://")
+        .or_else(|| url.strip_prefix("https://"))
+        .or_else(|| url.strip_prefix("http://"))
+        .or_else(|| url.strip_prefix("git://"));
+    if let Some(rest) = rest {
+        // Strip user@ if present (ssh://git@host/...)
+        let rest = rest.split_once('@').map(|(_, r)| r).unwrap_or(rest);
+        let rest = rest.trim_end_matches('/').trim_end_matches(".git");
+        let parts: Vec<&str> = rest.splitn(4, '/').collect();
+        if parts.len() >= 3 && !parts[0].is_empty() && !parts[1].is_empty() && !parts[2].is_empty() {
+            return Some(format!("{}/{}/{}", parts[0].to_lowercase(), parts[1].to_lowercase(), parts[2].to_lowercase()));
+        }
+    }
+    None
 }
 
 fn clone_or_pull(dest: &Path, url: &str, reference: Option<&str>, sha: Option<&str>) -> Result<Option<PathBuf>> {

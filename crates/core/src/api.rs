@@ -188,8 +188,23 @@ fn plugin_list(args: Value) -> Result<Value, String> {
 
 fn plugin_detail(args: Value) -> Result<Value, String> {
     let name = s(&args, "name").ok_or("missing name")?;
-    let (source_name, plugin) = find_plugin(name).ok_or_else(|| format!("Plugin '{name}' not found"))?;
+    let source_hint = s(&args, "source");
+
+    // Prefer: explicit source > installed plugin's source > first match
     let installed = registry::get_installed_plugin(name);
+    let preferred_source = source_hint.map(String::from)
+        .or_else(|| installed.as_ref().map(|p| p.source_name.clone()));
+
+    let (source_name, plugin) = if let Some(sn) = &preferred_source {
+        match source::parse_marketplace(sn) {
+            Ok(plugins) => plugins.into_iter().find(|p| p.name == name).map(|p| (sn.clone(), p)),
+            Err(_) => None,
+        }
+        .or_else(|| find_plugin(name))
+    } else {
+        find_plugin(name)
+    }.ok_or_else(|| format!("Plugin '{name}' not found"))?;
+
     let mut components = Vec::new();
     let mut skipped = Vec::new();
     if let Some(lp) = &plugin.local_path {

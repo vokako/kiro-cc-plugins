@@ -28,7 +28,7 @@ export const api = {
   },
   plugins: {
     list: (opts = {}) => callApi("plugin.list", opts),
-    detail: (name) => callApi("plugin.detail", { name }),
+    detail: (name, source = null) => callApi("plugin.detail", source ? { name, source } : { name }),
     add: (name, opts = {}) => callApi("plugin.add", { name, ...opts }),
     delete: (name) => callApi("plugin.delete", { name }),
     update: (name) => callApi("plugin.update", name ? { name } : { all: true }),

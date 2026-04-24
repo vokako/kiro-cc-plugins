@@ -3,7 +3,9 @@
   import { invoke } from "@tauri-apps/api/core";
   import { save, open } from "@tauri-apps/plugin-dialog";
   import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api.js";
+  import { appUpdate, sourceUpdates, checkUpdates } from "$lib/updates.js";
   import Sources from "$lib/Sources.svelte";
   import Plugins from "$lib/Plugins.svelte";
   import Installed from "$lib/Installed.svelte";
@@ -14,6 +16,14 @@
   let installedRef = $state(null);
   let jumpTo = $state(null);
   let initialSource = $state(null);
+  let toast = $state(null); // { kind: 'ok'|'err', text: string }
+  let toastTimer = null;
+
+  function showToast(kind, text) {
+    if (toastTimer) clearTimeout(toastTimer);
+    toast = { kind, text };
+    toastTimer = setTimeout(() => { toast = null; toastTimer = null; }, 4000);
+  }
 
   function onSourceChange() {
     pluginsRef?.load();
@@ -38,11 +48,14 @@
     try {
       const data = await api.config.export();
       const path = await save({ defaultPath: "kiro-cc-plugins.json", filters: [{ name: "JSON", extensions: ["json"] }] });
-      if (path) {
-        await writeTextFile(path, JSON.stringify(data, null, 2));
-      }
+      if (!path) return;
+      await writeTextFile(path, JSON.stringify(data, null, 2));
+      const ns = data?.sources?.length ?? 0;
+      const np = data?.plugins?.length ?? 0;
+      showToast("ok", `Exported ${ns} sources, ${np} plugins`);
     } catch (e) {
       console.error("export failed:", e);
+      showToast("err", `Export failed: ${e.message || e}`);
     }
   }
 
@@ -52,12 +65,26 @@
       if (!path) return;
       const text = await readTextFile(path);
       const config = JSON.parse(text);
-      await api.config.import(config);
-      // Refresh all tabs
+      if (!config || typeof config !== "object" || config.version !== 1) {
+        showToast("err", "Invalid config file (missing version: 1)");
+        return;
+      }
+      showToast("ok", "Importing sources and plugins...");
+      const result = await api.config.import(config);
+      const ns = result?.sources?.length ?? 0;
+      const np = result?.plugins?.length ?? 0;
+      const sFails = (result?.sources || []).filter(s => s.status !== "ok").length;
+      const pFails = (result?.plugins || []).filter(p => p.status !== "ok").length;
+      if (sFails || pFails) {
+        showToast("err", `Imported with errors: ${ns - sFails}/${ns} sources, ${np - pFails}/${np} plugins`);
+      } else {
+        showToast("ok", `Imported ${ns} sources, ${np} plugins`);
+      }
       pluginsRef?.load();
       installedRef?.load();
     } catch (e) {
       console.error("import failed:", e);
+      showToast("err", `Import failed: ${e.message || e}`);
     }
   }
 
@@ -65,6 +92,12 @@
 
   onMount(async () => {
     try { version = await invoke("app_version"); } catch (_) {}
+    // Initial update check
+    if (version) checkUpdates(version);
+    // Re-check when window regains focus (rate-limited internally)
+    window.addEventListener("focus", () => {
+      if (version) checkUpdates(version);
+    });
     window.addEventListener("keydown", (e) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       if (e.key === "=" || e.key === "+") { e.preventDefault(); zoomLevel = Math.min(2, zoomLevel + 0.1); document.body.style.zoom = zoomLevel; }
@@ -72,6 +105,16 @@
       else if (e.key === "0") { e.preventDefault(); zoomLevel = 1; document.body.style.zoom = 1; }
     });
   });
+
+  async function handleAppUpdate() {
+    const url = $appUpdate?.download_url || $appUpdate?.release_url;
+    if (!url) return;
+    try {
+      await openUrl(url);
+    } catch (e) {
+      showToast("err", `Failed to open: ${e.message || e}`);
+    }
+  }
 </script>
 
 <div class="app">
@@ -79,7 +122,16 @@
     <div class="brand">
       <span class="logo">⬡</span>
       <span class="title">KIRO <span class="accent">CC PLUGINS</span></span>
-      {#if version}<span class="version">v{version}</span>{/if}
+      {#if version}
+        <span class="version">
+          v{version}
+          {#if $appUpdate?.has_update}
+            <button class="update-badge" onclick={handleAppUpdate} title="New version v{$appUpdate.latest} available — click to download">
+              NEW
+            </button>
+          {/if}
+        </span>
+      {/if}
     </div>
     <nav>
       <button class:active={tab === "plugins"} onclick={() => (tab = "plugins")}>
@@ -108,6 +160,10 @@
       <Sources onsourceChange={onSourceChange} {openSource} />
     {/if}
   </main>
+
+  {#if toast}
+    <div class="toast toast-{toast.kind}">{toast.text}</div>
+  {/if}
 
   <footer>
     <span class="status-dot"></span>
@@ -278,6 +334,31 @@
     padding: 2px 6px;
     border-radius: 2px;
     letter-spacing: 0.05em;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .update-badge {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--bg);
+    background: var(--amber);
+    padding: 1px 5px;
+    border-radius: 2px;
+    letter-spacing: 0.08em;
+    border: none;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .update-badge:hover {
+    filter: brightness(1.15);
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.75; }
   }
 
   nav {
@@ -347,6 +428,33 @@
 
   .header-btn:active {
     transform: translateY(1px);
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 36px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: "JetBrains Mono", monospace;
+    letter-spacing: 0.03em;
+    z-index: 1000;
+    animation: toast-in 0.2s ease-out;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+  .toast-ok {
+    background: var(--green);
+    color: var(--bg);
+  }
+  .toast-err {
+    background: var(--red);
+    color: var(--text-bright);
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translate(-50%, 10px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
   }
 
   main {

@@ -11,15 +11,20 @@ async function callApi(command, args = {}) {
 }
 
 export const api = {
+  call: callApi,
   config: {
     export: () => callApi("config.export"),
     import: (config) => callApi("config.import", { config }),
+  },
+  app: {
+    checkUpdate: (current) => callApi("app.check_update", { current }),
   },
   sources: {
     list: () => callApi("source.list"),
     add: (url, name) => callApi("source.add", { url, name }),
     remove: (name) => callApi("source.remove", { name }),
     update: (name) => callApi("source.update", name ? { name } : {}),
+    checkUpdates: () => callApi("source.check_updates"),
   },
   plugins: {
     list: (opts = {}) => callApi("plugin.list", opts),

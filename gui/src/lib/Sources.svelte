@@ -1,6 +1,7 @@
 <script>
   import { api } from "$lib/api.js";
   import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
+  import { sourceUpdates } from "$lib/updates.js";
 
   let { onsourceChange, openSource } = $props();
   let sources = $state([]);
@@ -148,6 +149,9 @@
           <div class="card-header">
             <span class="source-icon">⬡</span>
             <span class="source-name">{s.name}</span>
+            {#if $sourceUpdates[s.name]}
+              <span class="update-tag" title="Upstream has new commits — click ↻ to pull">NEW</span>
+            {/if}
           </div>
           <div class="card-meta">
             <span class="url" title={s.url}>{s.url}</span>
@@ -389,6 +393,18 @@
     font-weight: 600;
     font-size: 13px;
     color: var(--text-bright);
+  }
+
+  .update-tag {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--bg);
+    background: var(--amber);
+    padding: 1px 5px;
+    border-radius: 2px;
+    letter-spacing: 0.08em;
+    margin-left: 4px;
   }
 
   .card-meta {

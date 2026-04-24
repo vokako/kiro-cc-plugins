@@ -51,9 +51,8 @@ fn install(plugin_name: &str) {
     converter::set_scope(Scope::Global);
     let mut converted = Vec::new();
     for comp in components {
-        if let Some(rec) = converter::convert_component(&comp, &plugin.name, &source_name).unwrap() {
-            converted.push(rec);
-        }
+        let recs = converter::convert_component(&comp, &plugin.name, &source_name).unwrap();
+        converted.extend(recs);
     }
     let commit = source::list_sources().into_iter().find(|s| s.name == source_name).map(|s| s.commit).unwrap_or_default();
     registry::add_installed(&plugin.name, &source_name, converted, &commit, "global").unwrap();

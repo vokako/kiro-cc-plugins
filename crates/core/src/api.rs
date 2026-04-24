@@ -15,6 +15,7 @@ pub fn dispatch(request: &Value) -> Value {
         "source.add" => source_add(args),
         "source.remove" => source_remove(args),
         "source.update" => source_update(args),
+        "source.check_updates" => source_check_updates(),
         "plugin.list" => plugin_list(args),
         "plugin.detail" => plugin_detail(args),
         "plugin.add" => plugin_add(args),
@@ -23,6 +24,7 @@ pub fn dispatch(request: &Value) -> Value {
         "plugin.toggle" => plugin_toggle(args),
         "config.export" => config_export(),
         "config.import" => config_import(args),
+        "app.check_update" => app_check_update(args),
         other => Err(format!("Unknown command: {other}")),
     };
     match result {
@@ -262,7 +264,8 @@ fn plugin_add(args: Value) -> Result<Value, String> {
             if let Some(conflict) = converter::check_conflict(&comp.name, &comp.component_type, &plugin.name, &source_name) {
                 skipped.push(json!({"type": comp.component_type, "name": comp.name, "reason": conflict})); continue;
             }
-            if let Some(rec) = converter::convert_component(&comp, &plugin.name, &source_name).map_err(err_str)? { converted.push(rec); }
+            let recs = converter::convert_component(&comp, &plugin.name, &source_name).map_err(err_str)?;
+            converted.extend(recs);
         }
         let n = converted.len();
         if !converted.is_empty() { registry::add_installed(&plugin.name, &source_name, converted, &commit, &scope).map_err(err_str)?; }
@@ -331,7 +334,8 @@ fn plugin_update(args: Value) -> Result<Value, String> {
         let mut converted = Vec::new();
         for comp in comps {
             if converter::check_conflict(&comp.name, &comp.component_type, &p.plugin_name, &p.source_name).is_some() { continue; }
-            if let Some(rec) = converter::convert_component(&comp, &p.plugin_name, &p.source_name).map_err(err_str)? { converted.push(rec); }
+            let recs = converter::convert_component(&comp, &p.plugin_name, &p.source_name).map_err(err_str)?;
+            converted.extend(recs);
         }
         // Restore disabled state for components that were previously disabled
         for rec in &converted {
@@ -392,48 +396,158 @@ fn config_import(args: Value) -> Result<Value, String> {
     let ver = config.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
     if ver != 1 { return Err(format!("unsupported config version: {ver}")); }
 
+    let sources_arr = config.get("sources").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let plugins_arr = config.get("plugins").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    println!("Importing {} sources, {} plugins", sources_arr.len(), plugins_arr.len());
+
     // 1. Add sources
     let mut source_results = Vec::new();
-    if let Some(sources) = config.get("sources").and_then(|v| v.as_array()) {
-        for src in sources {
-            let url = src.get("url").and_then(|v| v.as_str()).unwrap_or("");
-            let name = src.get("name").and_then(|v| v.as_str());
-            if url.is_empty() { continue; }
-            match source::add_source(url, name) {
-                Ok(s) => source_results.push(json!({"name": s.name, "status": "ok"})),
-                Err(e) => source_results.push(json!({"name": name.unwrap_or(url), "status": format!("{e}")})),
+    for src in &sources_arr {
+        let url = src.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        let name = src.get("name").and_then(|v| v.as_str());
+        if url.is_empty() { continue; }
+        let display = name.unwrap_or(url);
+        println!("  [source] fetching {}...", display);
+        match source::add_source(url, name) {
+            Ok(s) => {
+                println!("  [source] ✓ {} @ {}", s.name, s.commit.chars().take(8).collect::<String>());
+                source_results.push(json!({"name": s.name, "status": "ok"}));
+            }
+            Err(e) => {
+                println!("  [source] ✗ {} — {}", display, e);
+                source_results.push(json!({"name": display, "status": format!("{e}")}));
             }
         }
     }
 
     // 2. Install plugins + set enable/disable
     let mut plugin_results = Vec::new();
-    if let Some(plugins) = config.get("plugins").and_then(|v| v.as_array()) {
-        for pl in plugins {
-            let name = pl.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let scope = pl.get("scope").and_then(|v| v.as_str()).unwrap_or("global");
-            if name.is_empty() { continue; }
+    for pl in &plugins_arr {
+        let name = pl.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let scope = pl.get("scope").and_then(|v| v.as_str()).unwrap_or("global");
+        if name.is_empty() { continue; }
 
-            // Install if not already installed
-            if registry::get_installed_plugin(name).is_none() {
-                let add_args = json!({"name": name, "scope": scope});
-                let _ = plugin_add(add_args);
-            }
-
-            // Set enable/disable per component
-            if let Some(comps) = pl.get("components").and_then(|v| v.as_array()) {
-                for c in comps {
-                    let comp_name = c.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                    let enabled = c.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
-                    if !comp_name.is_empty() {
-                        let toggle_args = json!({"name": name, "component": comp_name, "enable": enabled});
-                        let _ = plugin_toggle(toggle_args);
-                    }
+        if registry::get_installed_plugin(name).is_none() {
+            println!("  [plugin] installing {} ({})...", name, scope);
+            let add_args = json!({"name": name, "scope": scope});
+            match plugin_add(add_args) {
+                Ok(v) => {
+                    let n = v.as_array().and_then(|a| a.first()).and_then(|r| r.get("components")).and_then(|x| x.as_u64()).unwrap_or(0);
+                    println!("  [plugin] ✓ {} ({} components)", name, n);
+                }
+                Err(e) => {
+                    println!("  [plugin] ✗ {} — {}", name, e);
                 }
             }
-            plugin_results.push(json!({"name": name, "status": "ok"}));
+        } else {
+            println!("  [plugin] {} already installed", name);
         }
+
+        // Set enable/disable per component
+        if let Some(comps) = pl.get("components").and_then(|v| v.as_array()) {
+            let mut disabled_count = 0;
+            for c in comps {
+                let comp_name = c.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let enabled = c.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+                if !comp_name.is_empty() {
+                    let toggle_args = json!({"name": name, "component": comp_name, "enable": enabled});
+                    let _ = plugin_toggle(toggle_args);
+                    if !enabled { disabled_count += 1; }
+                }
+            }
+            if disabled_count > 0 {
+                println!("  [plugin] {} — disabled {} component(s)", name, disabled_count);
+            }
+        }
+        plugin_results.push(json!({"name": name, "status": "ok"}));
     }
 
+    println!("Import complete");
     Ok(json!({"sources": source_results, "plugins": plugin_results}))
+}
+
+// ── update checks ────────────────────────────────────────────────────────
+
+/// For each installed source, compare local commit with remote HEAD.
+/// Returns: [{name, url, current, latest, has_update}]
+fn source_check_updates() -> Result<Value, String> {
+    let mut out = Vec::new();
+    for s in source::list_sources() {
+        let result = source::remote_head(&s.url);
+        let entry = match result {
+            Ok(latest) => {
+                let has_update = !s.commit.is_empty() && !latest.starts_with(&s.commit) && !s.commit.starts_with(&latest);
+                json!({
+                    "name": s.name,
+                    "url": s.url,
+                    "current": s.commit,
+                    "latest": latest,
+                    "has_update": has_update,
+                })
+            }
+            Err(e) => json!({
+                "name": s.name,
+                "url": s.url,
+                "current": s.commit,
+                "error": format!("{e}"),
+            }),
+        };
+        out.push(entry);
+    }
+    Ok(Value::Array(out))
+}
+
+/// Check GitHub Releases for kiro-cc-plugins latest version.
+/// args: { current: "0.3.4" }
+/// Returns: { current, latest, has_update, download_url }
+fn app_check_update(args: Value) -> Result<Value, String> {
+    let current = args.get("current").and_then(|v| v.as_str()).unwrap_or("").trim_start_matches('v').to_string();
+    let api_url = "https://api.github.com/repos/vokako/kiro-cc-plugins/releases/latest";
+
+    let agent = ureq::AgentBuilder::new().user_agent("kiro-cc-plugins").timeout(std::time::Duration::from_secs(8)).build();
+    let resp = agent.get(api_url).call().map_err(|e| format!("github api: {e}"))?;
+    let body: Value = resp.into_json().map_err(|e| format!("parse json: {e}"))?;
+
+    let tag = body.get("tag_name").and_then(|v| v.as_str()).unwrap_or("");
+    let latest = tag.trim_start_matches('v').to_string();
+    let has_update = !latest.is_empty() && !current.is_empty() && version_newer(&latest, &current);
+
+    // Find the macOS dmg asset (aarch64 for Apple Silicon, x64 for Intel)
+    let assets = body.get("assets").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let target_arch = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x64" };
+    let target_ext = if cfg!(target_os = "macos") { ".dmg" }
+                     else if cfg!(target_os = "windows") { ".exe" }
+                     else { ".tar.gz" };
+    let asset_url = assets.iter()
+        .find(|a| {
+            let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            name.ends_with(target_ext) && name.contains(target_arch)
+        })
+        .and_then(|a| a.get("browser_download_url").and_then(|v| v.as_str()))
+        .map(String::from);
+
+    let release_url = body.get("html_url").and_then(|v| v.as_str()).map(String::from);
+
+    Ok(json!({
+        "current": current,
+        "latest": latest,
+        "has_update": has_update,
+        "download_url": asset_url,
+        "release_url": release_url,
+    }))
+}
+
+/// Return true if version `a` is newer than version `b`. Semver-ish comparison.
+fn version_newer(a: &str, b: &str) -> bool {
+    let parse = |v: &str| -> Vec<u32> {
+        v.split('.').filter_map(|s| s.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().ok()).collect()
+    };
+    let aa = parse(a);
+    let bb = parse(b);
+    for i in 0..aa.len().max(bb.len()) {
+        let x = aa.get(i).copied().unwrap_or(0);
+        let y = bb.get(i).copied().unwrap_or(0);
+        if x != y { return x > y; }
+    }
+    false
 }

@@ -28,6 +28,28 @@ fn git_head(repo_dir: &Path) -> Result<String> {
     Ok(oid.to_string())
 }
 
+/// Fetch the remote HEAD commit SHA without cloning/fetching objects.
+/// Uses `git ls-remote`-equivalent via libgit2 remote connect.
+pub fn remote_head(url: &str) -> Result<String> {
+    let mut remote = git2::Remote::create_detached(url)?;
+    remote.connect(git2::Direction::Fetch)?;
+    let list = remote.list()?;
+    // Look for HEAD ref first, fall back to refs/heads/main or refs/heads/master
+    let mut head_sha: Option<String> = None;
+    let mut main_sha: Option<String> = None;
+    let mut master_sha: Option<String> = None;
+    for r in list.iter() {
+        match r.name() {
+            "HEAD" => head_sha = Some(r.oid().to_string()),
+            "refs/heads/main" => main_sha = Some(r.oid().to_string()),
+            "refs/heads/master" => master_sha = Some(r.oid().to_string()),
+            _ => {}
+        }
+    }
+    remote.disconnect()?;
+    head_sha.or(main_sha).or(master_sha).ok_or_else(|| Error::msg("no HEAD on remote"))
+}
+
 fn clone_repo(url: &str, dest: &Path, ref_or_sha: Option<&str>) -> Result<()> {
     let mut fo = FetchOptions::new();
     fo.depth(1);
@@ -77,18 +99,19 @@ pub fn list_sources() -> Vec<Source> {
 }
 
 pub fn add_source(url: &str, name: Option<&str>) -> Result<Source> {
-    let name = name.map(|s| s.to_string()).unwrap_or_else(|| derive_source_name(url));
+    let url = normalize_git_url(url);
+    let name = name.map(|s| s.to_string()).unwrap_or_else(|| derive_source_name(&url));
     let repo_dir = cache_dir_for(&name);
     std::fs::create_dir_all(cache_dir())?;
     if repo_dir.exists() {
         pull_ff(&repo_dir)?;
     } else {
-        clone_repo(url, &repo_dir, None)?;
+        clone_repo(&url, &repo_dir, None)?;
     }
     let commit = git_head(&repo_dir)?;
     let src = Source {
         name: name.clone(),
-        url: url.to_string(),
+        url: url.clone(),
         cloned_at: Utc::now().to_rfc3339(),
         commit,
     };
@@ -140,11 +163,25 @@ pub fn get_source_dir(name: &str) -> Result<PathBuf> {
 // ── external plugin fetch ────────────────────────────────────────────────
 
 fn normalize_git_url(url: &str) -> String {
-    if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("git@") {
-        url.to_string()
-    } else {
-        format!("https://github.com/{url}.git")
+    let url = url.trim();
+    // Short form: "owner/repo" → GitHub HTTPS URL
+    if !url.starts_with("http://") && !url.starts_with("https://") && !url.starts_with("git@") && !url.starts_with("ssh://") {
+        return format!("https://github.com/{url}.git");
     }
+
+    // GitHub web URLs: strip /tree/..., /blob/..., /releases, /pulls, /issues, etc.
+    // Keep only https://<host>/<owner>/<repo> and ensure it ends with .git
+    if let Some(rest) = url.strip_prefix("https://github.com/").or_else(|| url.strip_prefix("http://github.com/")) {
+        // rest is like "owner/repo" or "owner/repo/tree/main" etc.
+        let parts: Vec<&str> = rest.splitn(3, '/').collect();
+        if parts.len() >= 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+            let repo = parts[1].trim_end_matches(".git");
+            return format!("https://github.com/{}/{}.git", parts[0], repo);
+        }
+    }
+
+    // Already a clone-ready URL; ensure .git suffix for https to improve consistency
+    url.to_string()
 }
 
 fn clone_or_pull(dest: &Path, url: &str, reference: Option<&str>, sha: Option<&str>) -> Result<Option<PathBuf>> {

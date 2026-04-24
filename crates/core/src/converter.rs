@@ -645,18 +645,59 @@ pub fn convert_mcp(
     })
 }
 
+/// Create a Kiro skill from a Claude Code command. Commands are user-invocable
+/// in Claude Code; by also exposing them as skills, Kiro can auto-trigger them
+/// when the user's intent matches the command's description.
+fn convert_command_to_skill(
+    comp: &ScannedComponent,
+    plugin_name: &str,
+    source_name: &str,
+) -> Result<ComponentRecord> {
+    let target_dir = kiro_skill_dir(&comp.name, plugin_name, source_name);
+    std::fs::create_dir_all(&target_dir)?;
+
+    let fm = &comp.frontmatter;
+    let description = fm.get("description").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let body = comp.body.trim();
+
+    // Build SKILL.md with YAML frontmatter Kiro expects (name + description required)
+    let skill_md = format!(
+        "---\nname: {}\ndescription: {}\n---\n\n{}\n",
+        comp.name,
+        description,
+        body,
+    );
+
+    let target = target_dir.join("SKILL.md");
+    std::fs::write(&target, skill_md)?;
+
+    Ok(ComponentRecord {
+        component_type: "skill".into(),
+        name: format!("{}-skill", comp.name),
+        source_rel: comp.rel_path.clone(),
+        target_path: target.to_string_lossy().to_string(),
+        mcp_keys: None,
+    })
+}
+
 pub fn convert_component(
     comp: &ScannedComponent,
     plugin_name: &str,
     source_name: &str,
-) -> Result<Option<ComponentRecord>> {
-    let rec = match comp.component_type.as_str() {
-        "skill" => convert_skill(comp, plugin_name, source_name)?,
-        "command" | "agent" => convert_agent(comp, plugin_name, source_name)?,
-        "mcp" => convert_mcp(comp, plugin_name, source_name)?,
-        _ => return Ok(None),
+) -> Result<Vec<ComponentRecord>> {
+    let recs = match comp.component_type.as_str() {
+        "skill" => vec![convert_skill(comp, plugin_name, source_name)?],
+        "command" => {
+            // Commands become both agents (for explicit invocation) and skills (for auto-trigger)
+            let agent_rec = convert_agent(comp, plugin_name, source_name)?;
+            let skill_rec = convert_command_to_skill(comp, plugin_name, source_name)?;
+            vec![agent_rec, skill_rec]
+        }
+        "agent" => vec![convert_agent(comp, plugin_name, source_name)?],
+        "mcp" => vec![convert_mcp(comp, plugin_name, source_name)?],
+        _ => return Ok(Vec::new()),
     };
-    Ok(Some(rec))
+    Ok(recs)
 }
 
 pub fn remove_converted(target_path: &str, mcp_keys: Option<&[String]>) -> Result<()> {

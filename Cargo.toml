@@ -4,7 +4,7 @@ members = ["crates/core", "crates/cli"]
 exclude = ["gui/src-tauri"]
 
 [workspace.package]
-version = "0.3.4"
+version = "0.3.5"
 edition = "2021"
 authors = ["vokako"]
 license = "MIT"

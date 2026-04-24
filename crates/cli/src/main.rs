@@ -658,7 +658,8 @@ fn add_cmd(
                 warn(format!("Skipping {}:{} — {conflict}", comp.component_type, comp.name));
                 continue;
             }
-            if let Some(rec) = converter::convert_component(&comp, &plugin.name, &source_name_resolved).map_err(|e| anyhow!("{e}"))? {
+            let recs = converter::convert_component(&comp, &plugin.name, &source_name_resolved).map_err(|e| anyhow!("{e}"))?;
+            for rec in recs {
                 if rec.component_type == "agent" || rec.component_type == "command" {
                     converted_names.push(rec.name.clone());
                 }
@@ -796,9 +797,8 @@ fn update_cmd(plugin_name: Option<&str>, update_all: bool, only: Option<&str>) -
             if let Some(_conflict) = converter::check_conflict(&comp.name, &comp.component_type, &p.plugin_name, &p.source_name) {
                 continue;
             }
-            if let Some(rec) = converter::convert_component(&comp, &p.plugin_name, &p.source_name).map_err(|e| anyhow!("{e}"))? {
-                converted.push(rec);
-            }
+            let recs = converter::convert_component(&comp, &p.plugin_name, &p.source_name).map_err(|e| anyhow!("{e}"))?;
+            converted.extend(recs);
         }
         // Restore disabled state for components that were previously disabled
         for rec in &converted {
@@ -915,9 +915,7 @@ fn export_cmd(output: Option<&str>) -> Result<()> {
 fn import_cmd(file: &str) -> Result<()> {
     let text = std::fs::read_to_string(file).context("reading import file")?;
     let config: serde_json::Value = serde_json::from_str(&text).context("parsing JSON")?;
-    let pb = spinner("Importing...");
     let result = kiro_cc_core::api::dispatch(&serde_json::json!({"command": "config.import", "args": {"config": config}}));
-    pb.finish_and_clear();
     if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
         let data = &result["data"];
         let ns = data.get("sources").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);

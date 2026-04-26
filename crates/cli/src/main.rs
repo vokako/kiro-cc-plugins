@@ -56,6 +56,13 @@ enum Cmd {
         #[arg(long)]
         agents: bool,
     },
+    /// Search plugins by name, description, or category (case-insensitive)
+    Search {
+        /// Keyword(s) to match
+        keyword: String,
+        #[arg(long)]
+        source: Option<String>,
+    },
     /// Install plugins
     Add {
         plugin: Option<String>,
@@ -170,6 +177,7 @@ fn run() -> Result<()> {
         Cmd::List { plugin, source, installed, only, skills, agents } => {
             list_cmd(plugin.as_deref(), source.as_deref(), installed, only.as_deref(), skills, agents)
         }
+        Cmd::Search { keyword, source } => search_cmd(&keyword, source.as_deref()),
         Cmd::Add { plugin, source, install_all, only, git, scope } => {
             add_cmd(plugin.as_deref(), source.as_deref(), install_all, only.as_deref(), git.as_deref(), &scope)
         }
@@ -315,6 +323,35 @@ fn find_plugin_source(name: &str) -> Result<Option<(String, Vec<MarketplacePlugi
     }
 }
 
+/// Given a plugin name that could not be found, suggest possible actions.
+/// Returns an error with a helpful message listing similar names.
+fn plugin_not_found_err(name: &str) -> anyhow::Error {
+    let mut all_names: Vec<String> = Vec::new();
+    for s in source::list_sources() {
+        if let Ok(plugins) = source::parse_marketplace(&s.name) {
+            for p in plugins {
+                all_names.push(format!("{} (from {})", p.name, s.name));
+            }
+        }
+    }
+    // Find similar names (substring or fuzzy match)
+    let lower = name.to_lowercase();
+    let suggestions: Vec<String> = all_names.iter()
+        .filter(|n| n.to_lowercase().contains(&lower) || {
+            let plugin_part = n.split_whitespace().next().unwrap_or("");
+            let pl = plugin_part.to_lowercase();
+            pl.contains(&lower) || lower.contains(&pl)
+        })
+        .take(5)
+        .cloned()
+        .collect();
+    if suggestions.is_empty() {
+        anyhow!("Plugin '{name}' not found in any source.\nRun 'kiro-cc-plugins list' to see all available plugins, or 'kiro-cc-plugins search <keyword>' to find one.")
+    } else {
+        anyhow!("Plugin '{name}' not found. Did you mean:\n  - {}", suggestions.join("\n  - "))
+    }
+}
+
 fn find_plugin_local_path(source_name: &str, plugin_name: &str) -> Option<PathBuf> {
     let plugins = source::parse_marketplace(source_name).ok()?;
     let plugin = plugins.into_iter().find(|p| p.name == plugin_name)?;
@@ -338,6 +375,63 @@ fn get_commit(source_name: &str) -> String {
 }
 
 // ── list command ─────────────────────────────────────────────────────────
+
+fn search_cmd(keyword: &str, source_name: Option<&str>) -> Result<()> {
+    let kw = keyword.to_lowercase();
+    let sources_to_scan: Vec<String> = if let Some(sn) = source_name {
+        vec![sn.to_string()]
+    } else {
+        source::list_sources().into_iter().map(|s| s.name).collect()
+    };
+
+    if sources_to_scan.is_empty() {
+        dim("No sources registered. Add one with: kiro-cc-plugins source add <url>");
+        return Ok(());
+    }
+
+    let installed_names: HashSet<String> = registry::get_installed().into_iter().map(|p| p.plugin_name).collect();
+    let mut matches: Vec<(String, MarketplacePlugin, bool)> = Vec::new();
+    for sn in &sources_to_scan {
+        let Ok(plugins) = source::parse_marketplace(sn) else { continue };
+        for p in plugins {
+            let hit = p.name.to_lowercase().contains(&kw)
+                || p.description.to_lowercase().contains(&kw)
+                || p.category.to_lowercase().contains(&kw);
+            if hit {
+                let installed = installed_names.contains(&p.name);
+                matches.push((sn.clone(), p, installed));
+            }
+        }
+    }
+
+    if matches.is_empty() {
+        dim(format!("No plugins found matching '{keyword}'."));
+        return Ok(());
+    }
+
+    let mut t = make_table();
+    t.set_header(vec!["", "Name", "Source", "Description"]);
+    for (sn, p, installed) in &matches {
+        let status = if *installed {
+            Cell::new("✓").fg(Color::Green)
+        } else if p.local_path.as_ref().is_some_and(|lp| lp.is_dir()) {
+            Cell::new("○").fg(Color::Green)
+        } else if p.source.is_object() {
+            Cell::new("○").fg(Color::Yellow)
+        } else {
+            Cell::new("✗").fg(Color::Red)
+        };
+        t.add_row(vec![
+            status,
+            Cell::new(&p.name),
+            Cell::new(sn),
+            Cell::new(&p.description),
+        ]);
+    }
+    println!("{t}");
+    dim(format!("\n{} match(es) for '{}' across {} source(s)", matches.len(), keyword, sources_to_scan.len()));
+    Ok(())
+}
 
 fn list_cmd(
     plugin_name: Option<&str>,
@@ -592,10 +686,13 @@ fn add_cmd(
     } else if let Some(pn) = plugin_name {
         if let Some((sn, plugins)) = find_plugin_source(pn)? {
             (sn, plugins, install_all)
+        } else if let Some(sn) = source_name {
+            // User explicitly specified source; load it even if plugin name not found
+            let plugins = source::parse_marketplace(sn).map_err(|e| anyhow!("{e}"))?;
+            (sn.to_string(), plugins, install_all)
         } else {
-            let sn = resolve_source(source_name)?;
-            let plugins = source::parse_marketplace(&sn).map_err(|e| anyhow!("{e}"))?;
-            (sn, plugins, install_all)
+            // Plugin name not found in any source, and no --source specified
+            return Err(plugin_not_found_err(pn));
         }
     } else {
         let sn = resolve_source(source_name)?;

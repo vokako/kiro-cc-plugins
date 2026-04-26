@@ -8,6 +8,10 @@
 <em>Install <a href="https://code.claude.com/docs/en/plugins">Claude Code plugins</a> into <a href="https://kiro.dev">Kiro</a>.</em>
 </p>
 
+<p align="center">
+  <a href="README.zh-CN.md">🇨🇳 中文</a>
+</p>
+
 Supports marketplace repos (like the [official Anthropic marketplace](https://github.com/anthropics/claude-plugins-official)) and standalone plugin/skill repos.
 
 ## Demo

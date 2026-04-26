@@ -10,6 +10,11 @@
 
 Supports marketplace repos (like the [official Anthropic marketplace](https://github.com/anthropics/claude-plugins-official)) and standalone plugin/skill repos.
 
+## Demo
+
+https://github.com/user-attachments/assets/72ae01e3-42fb-4091-8265-ea5346f4f30c
+
+
 ## Install
 
 ### CLI

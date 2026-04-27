@@ -410,10 +410,37 @@ fn config_import(args: Value) -> Result<Value, String> {
     let config = if let Some(s) = args.get("config") { s.clone() } else { args.clone() };
     let ver = config.get("version").and_then(|v| v.as_u64()).unwrap_or(0);
     if ver != 1 { return Err(format!("unsupported config version: {ver}")); }
+    let force = args.get("force").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let sources_arr = config.get("sources").and_then(|v| v.as_array()).cloned().unwrap_or_default();
     let plugins_arr = config.get("plugins").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    println!("Importing {} sources, {} plugins", sources_arr.len(), plugins_arr.len());
+    println!("Importing {} sources, {} plugins{}", sources_arr.len(), plugins_arr.len(), if force { " (force: removing extras)" } else { "" });
+
+    // Force: compute sets and remove extras first
+    if force {
+        use std::collections::HashSet;
+        let target_plugins: HashSet<String> = plugins_arr.iter()
+            .filter_map(|p| p.get("name").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+        let target_sources: HashSet<String> = sources_arr.iter()
+            .filter_map(|s| s.get("name").and_then(|v| v.as_str()).map(String::from))
+            .collect();
+
+        // Remove plugins not in target
+        for p in registry::get_installed() {
+            if !target_plugins.contains(&p.plugin_name) {
+                println!("  [force] removing plugin {}...", p.plugin_name);
+                let _ = plugin_delete(json!({"name": p.plugin_name}));
+            }
+        }
+        // Remove sources not in target (force=true since their plugins are gone)
+        for s in source::list_sources() {
+            if !target_sources.contains(&s.name) {
+                println!("  [force] removing source {}...", s.name);
+                let _ = source::remove_source(&s.name);
+            }
+        }
+    }
 
     // 1. Add sources
     let mut source_results = Vec::new();
@@ -429,8 +456,14 @@ fn config_import(args: Value) -> Result<Value, String> {
                 source_results.push(json!({"name": s.name, "status": "ok"}));
             }
             Err(e) => {
-                println!("  [source] ✗ {} — {}", display, e);
-                source_results.push(json!({"name": display, "status": format!("{e}")}));
+                let msg = format!("{e}");
+                if msg.contains("already exists") {
+                    println!("  [source] · {} already registered", display);
+                    source_results.push(json!({"name": display, "status": "ok"}));
+                } else {
+                    println!("  [source] ✗ {} — {}", display, msg);
+                    source_results.push(json!({"name": display, "status": msg}));
+                }
             }
         }
     }

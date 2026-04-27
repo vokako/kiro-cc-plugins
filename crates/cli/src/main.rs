@@ -131,6 +131,9 @@ enum Cmd {
     Import {
         /// Input file path
         file: String,
+        /// Remove existing sources/plugins not in the imported config (full sync)
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -188,7 +191,7 @@ fn run() -> Result<()> {
         Cmd::Api { request } => api_cmd(&request),
         Cmd::Status => status_cmd(),
         Cmd::Export { output } => export_cmd(output.as_deref()),
-        Cmd::Import { file } => import_cmd(&file),
+        Cmd::Import { file, force } => import_cmd(&file, force),
     }
 }
 
@@ -1009,10 +1012,10 @@ fn export_cmd(output: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn import_cmd(file: &str) -> Result<()> {
+fn import_cmd(file: &str, force: bool) -> Result<()> {
     let text = std::fs::read_to_string(file).context("reading import file")?;
     let config: serde_json::Value = serde_json::from_str(&text).context("parsing JSON")?;
-    let result = kiro_cc_core::api::dispatch(&serde_json::json!({"command": "config.import", "args": {"config": config}}));
+    let result = kiro_cc_core::api::dispatch(&serde_json::json!({"command": "config.import", "args": {"config": config, "force": force}}));
     if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
         let data = &result["data"];
         let ns = data.get("sources").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);

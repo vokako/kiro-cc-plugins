@@ -14,7 +14,7 @@ export const api = {
   call: callApi,
   config: {
     export: () => callApi("config.export"),
-    import: (config) => callApi("config.import", { config }),
+    import: (config, force = false) => callApi("config.import", { config, force }),
   },
   app: {
     checkUpdate: (current) => callApi("app.check_update", { current }),

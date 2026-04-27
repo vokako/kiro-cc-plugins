@@ -18,6 +18,10 @@
 
 https://github.com/user-attachments/assets/72ae01e3-42fb-4091-8265-ea5346f4f30c
 
+## 介绍文章
+
+🇨🇳 [让 Kiro 能力倍增，使用 kiro-cc-plugins 一键接入 Claude Code 插件生态](https://mp.weixin.qq.com/s/4hbZ4E-ZwZQOfLRkiiaJ9Q)
+
 ## 安装
 
 ### CLI 版

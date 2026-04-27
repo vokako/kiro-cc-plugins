@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">🇺🇸 English</a>
+  <a href="README.md">English</a>
 </p>
 
 支持 marketplace 仓库（比如 [Anthropic 官方 marketplace](https://github.com/anthropics/claude-plugins-official)）以及独立的 plugin/skill 仓库。
@@ -18,9 +18,7 @@
 
 https://github.com/user-attachments/assets/72ae01e3-42fb-4091-8265-ea5346f4f30c
 
-## 介绍文章
-
-🇨🇳 [让 Kiro 能力倍增，使用 kiro-cc-plugins 一键接入 Claude Code 插件生态](https://mp.weixin.qq.com/s/4hbZ4E-ZwZQOfLRkiiaJ9Q)
+[让 Kiro 能力倍增，使用 kiro-cc-plugins 一键接入 Claude Code 插件生态](https://mp.weixin.qq.com/s/4hbZ4E-ZwZQOfLRkiiaJ9Q)
 
 ## 安装
 

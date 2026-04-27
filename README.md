@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="README.zh-CN.md">🇨🇳 中文</a>
+  <a href="README.zh-CN.md">中文</a>
 </p>
 
 Supports marketplace repos (like the [official Anthropic marketplace](https://github.com/anthropics/claude-plugins-official)) and standalone plugin/skill repos.
@@ -18,9 +18,7 @@ Supports marketplace repos (like the [official Anthropic marketplace](https://gi
 
 https://github.com/user-attachments/assets/72ae01e3-42fb-4091-8265-ea5346f4f30c
 
-## Blog post
-
-🇨🇳 [让 Kiro 能力倍增，使用 kiro-cc-plugins 一键接入 Claude Code 插件生态](https://mp.weixin.qq.com/s/4hbZ4E-ZwZQOfLRkiiaJ9Q)
+中文 [让 Kiro 能力倍增，使用 kiro-cc-plugins 一键接入 Claude Code 插件生态](https://mp.weixin.qq.com/s/4hbZ4E-ZwZQOfLRkiiaJ9Q)
 
 
 ## Install

@@ -12,6 +12,14 @@
   <a href="README.md">English README</a> · Blog: <a href="https://mp.weixin.qq.com/s/4hbZ4E-ZwZQOfLRkiiaJ9Q">让 Kiro 能力倍增，使用 kiro-cc-plugins 一键接入 Claude Code 插件生态</a>
 </p>
 
+<p align="center">
+  <a href="https://mp.weixin.qq.com/s/4hbZ4E-ZwZQOfLRkiiaJ9Q">
+    <img src="docs/blog-qr.png" width="160" alt="扫码阅读公众号文章" />
+  </a>
+  <br/>
+  <sub>微信扫码阅读</sub>
+</p>
+
 支持 marketplace 仓库（比如 [Anthropic 官方 marketplace](https://github.com/anthropics/claude-plugins-official)）以及独立的 plugin/skill 仓库。
 
 ## 演示

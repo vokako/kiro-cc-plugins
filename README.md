@@ -12,6 +12,14 @@
   <a href="README.zh-CN.md">中文 README</a> · Blog: <a href="https://mp.weixin.qq.com/s/4hbZ4E-ZwZQOfLRkiiaJ9Q">让 Kiro 能力倍增，使用 kiro-cc-plugins 一键接入 Claude Code 插件生态</a>
 </p>
 
+<p align="center">
+  <a href="https://mp.weixin.qq.com/s/4hbZ4E-ZwZQOfLRkiiaJ9Q">
+    <img src="docs/blog-qr.png" width="160" alt="Scan to read the blog post" />
+  </a>
+  <br/>
+  <sub>WeChat: scan to read</sub>
+</p>
+
 Supports marketplace repos (like the [official Anthropic marketplace](https://github.com/anthropics/claude-plugins-official)) and standalone plugin/skill repos.
 
 ## Demo

@@ -1,6 +1,6 @@
 [package]
 name = "kiro-cc-plugins-app"
-version = "0.3.7"
+version = "0.3.8"
 description = "Kiro CC Plugins Manager"
 authors = ["you"]
 edition = "2021"

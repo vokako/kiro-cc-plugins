@@ -109,6 +109,10 @@ fn git_head(repo_dir: &Path) -> Result<String> {
 /// Fetch the remote HEAD commit SHA without cloning/fetching objects.
 /// Uses `git ls-remote`-equivalent via libgit2 remote connect.
 pub fn remote_head(url: &str) -> Result<String> {
+    // libgit2 here was built without libssh2 — skip it for SSH URLs.
+    if is_ssh_url(url) {
+        return shell_git_ls_remote(url);
+    }
     match remote_head_libgit2(url) {
         Ok(sha) => Ok(sha),
         Err(libgit2_err) => match shell_git_ls_remote(url) {
@@ -170,6 +174,13 @@ fn shell_git_ls_remote(url: &str) -> Result<String> {
 }
 
 fn clone_repo(url: &str, dest: &Path, ref_or_sha: Option<&str>) -> Result<()> {
+    // libgit2 here was built without libssh2 — skip it for SSH URLs.
+    if is_ssh_url(url) {
+        if dest.exists() {
+            std::fs::remove_dir_all(dest).ok();
+        }
+        return shell_git_clone(url, dest, ref_or_sha);
+    }
     match clone_repo_libgit2(url, dest, ref_or_sha) {
         Ok(()) => Ok(()),
         Err(libgit2_err) => {
@@ -238,8 +249,26 @@ fn pull_ff(repo_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+fn is_ssh_url(url: &str) -> bool {
+    url.starts_with("git@") || url.starts_with("ssh://")
+}
+
 fn derive_source_name(url: &str) -> String {
-    let s = url.trim_end_matches('/').trim_end_matches(".git");
+    let s = url.trim().trim_end_matches('/').trim_end_matches(".git");
+
+    // SSH form: user@host:owner/repo → take owner/repo
+    if let Some(rest) = s.strip_prefix("git@") {
+        if let Some((_host, path)) = rest.split_once(':') {
+            let path = path.trim_start_matches('/');
+            let parts: Vec<&str> = path.split('/').collect();
+            if parts.len() >= 2 {
+                return format!("{}/{}", parts[parts.len() - 2], parts[parts.len() - 1]);
+            }
+            return path.to_string();
+        }
+    }
+
+    // ssh://, https://, http://, git://, plain "owner/repo": take last two segments
     let parts: Vec<&str> = s.split('/').collect();
     if parts.len() >= 2 {
         format!("{}/{}", parts[parts.len() - 2], parts[parts.len() - 1])

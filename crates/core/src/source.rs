@@ -3,9 +3,87 @@
 use crate::models::{cache_dir, config_file, load_json, save_json, Error, Result, Source};
 use chrono::Utc;
 use git2::build::RepoBuilder;
-use git2::{FetchOptions, Oid, Repository};
+use git2::{Cred, CredentialType, FetchOptions, Oid, RemoteCallbacks, Repository};
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
+
+/// Build a `RemoteCallbacks` whose credential handler tries common auth sources.
+///
+/// Resolution order:
+///   1. `GH_TOKEN` / `GITHUB_TOKEN` env var (HTTPS, basic auth as `x-access-token`)
+///   2. Git credential helper from system git config (osxkeychain, wincred, manager-core, …)
+///   3. SSH agent (for `git@host:...` URLs)
+///   4. Default SSH key files in `~/.ssh/` (id_ed25519, id_rsa, id_ecdsa)
+///   5. libgit2 default (last resort)
+fn make_remote_callbacks<'a>() -> RemoteCallbacks<'a> {
+    let mut cb = RemoteCallbacks::new();
+    cb.credentials(|url, username_from_url, allowed_types| {
+        // SSH branch
+        if allowed_types.contains(CredentialType::SSH_KEY) {
+            let user = username_from_url.unwrap_or("git");
+            // 1. ssh-agent
+            if let Ok(cred) = Cred::ssh_key_from_agent(user) {
+                return Ok(cred);
+            }
+            // 2. ~/.ssh/<key>
+            if let Some(home) = dirs::home_dir() {
+                for key_name in &["id_ed25519", "id_rsa", "id_ecdsa"] {
+                    let key_path = home.join(".ssh").join(key_name);
+                    if key_path.exists() {
+                        if let Ok(cred) = Cred::ssh_key(user, None, &key_path, None) {
+                            return Ok(cred);
+                        }
+                    }
+                }
+            }
+        }
+
+        // HTTPS userpass branch
+        if allowed_types.contains(CredentialType::USER_PASS_PLAINTEXT) {
+            // 1. GH_TOKEN / GITHUB_TOKEN
+            if let Ok(token) = std::env::var("GH_TOKEN").or_else(|_| std::env::var("GITHUB_TOKEN")) {
+                if !token.is_empty() {
+                    return Cred::userpass_plaintext("x-access-token", &token);
+                }
+            }
+            // 2. git credential helper (osxkeychain / wincred / cache / manager-core)
+            if let Ok(config) = git2::Config::open_default() {
+                if let Ok(cred) = Cred::credential_helper(&config, url, username_from_url) {
+                    return Ok(cred);
+                }
+            }
+        }
+
+        // Username-only (some servers send this first to negotiate)
+        if allowed_types.contains(CredentialType::USERNAME) {
+            if let Some(user) = username_from_url {
+                if let Ok(cred) = Cred::username(user) {
+                    return Ok(cred);
+                }
+            }
+        }
+
+        // libgit2 default (last resort, e.g. SSH config defaults)
+        if allowed_types.contains(CredentialType::DEFAULT) {
+            if let Ok(cred) = Cred::default() {
+                return Ok(cred);
+            }
+        }
+
+        Err(git2::Error::from_str(
+            "authentication required: set GH_TOKEN/GITHUB_TOKEN, configure git credential helper, or add an SSH key",
+        ))
+    });
+    cb
+}
+
+/// FetchOptions with auth callbacks and a shallow depth.
+fn make_fetch_options<'a>() -> FetchOptions<'a> {
+    let mut fo = FetchOptions::new();
+    fo.depth(1);
+    fo.remote_callbacks(make_remote_callbacks());
+    fo
+}
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct ConfigFile {
@@ -32,7 +110,7 @@ fn git_head(repo_dir: &Path) -> Result<String> {
 /// Uses `git ls-remote`-equivalent via libgit2 remote connect.
 pub fn remote_head(url: &str) -> Result<String> {
     let mut remote = git2::Remote::create_detached(url)?;
-    remote.connect(git2::Direction::Fetch)?;
+    remote.connect_auth(git2::Direction::Fetch, Some(make_remote_callbacks()), None)?;
     let list = remote.list()?;
     // Look for HEAD ref first, fall back to refs/heads/main or refs/heads/master
     let mut head_sha: Option<String> = None;
@@ -51,10 +129,8 @@ pub fn remote_head(url: &str) -> Result<String> {
 }
 
 fn clone_repo(url: &str, dest: &Path, ref_or_sha: Option<&str>) -> Result<()> {
-    let mut fo = FetchOptions::new();
-    fo.depth(1);
     let mut builder = RepoBuilder::new();
-    builder.fetch_options(fo);
+    builder.fetch_options(make_fetch_options());
     if let Some(r) = ref_or_sha {
         // Only useful for branch refs; SHA handled separately below.
         builder.branch(r);

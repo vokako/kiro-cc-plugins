@@ -464,6 +464,16 @@ pub fn convert_agent(
     std::fs::write(&prompt_path, format!("{prompt_content}\n"))?;
     let prompt_filename = prompt_path.file_name().unwrap().to_string_lossy().to_string();
 
+    // Display name: namespace commands as "{plugin}:{name}" so users invoke them
+    // the same way as in Claude Code (e.g. "superpowers:brainstorming").
+    // Subagents (from agents/) keep their original name — they're internal helpers
+    // Claude spawns, not user-facing entry points.
+    let display_name = if comp.component_type == "command" {
+        format!("{plugin_name}:{}", comp.name)
+    } else {
+        comp.name.clone()
+    };
+
     let mut cfg = Map::new();
     cfg.insert(
         "$schema".into(),
@@ -472,7 +482,7 @@ pub fn convert_agent(
                 .into(),
         ),
     );
-    cfg.insert("name".into(), Value::String(comp.name.clone()));
+    cfg.insert("name".into(), Value::String(display_name.clone()));
     cfg.insert("description".into(), Value::String(description));
     cfg.insert("prompt".into(), Value::String(format!("file://./{prompt_filename}")));
     cfg.insert(
@@ -516,7 +526,7 @@ pub fn convert_agent(
     write_json_file(&target, &Value::Object(cfg))?;
     Ok(ComponentRecord {
         component_type: comp.component_type.clone(),
-        name: comp.name.clone(),
+        name: display_name,
         source_rel: comp.rel_path.clone(),
         target_path: target.to_string_lossy().to_string(),
         mcp_keys: None,
@@ -660,10 +670,13 @@ fn convert_command_to_skill(
     let description = fm.get("description").and_then(|v| v.as_str()).unwrap_or("").trim();
     let body = comp.body.trim();
 
+    // Namespace the skill name to match Claude Code's "{plugin}:{name}" convention.
+    let display_name = format!("{plugin_name}:{}", comp.name);
+
     // Build SKILL.md with YAML frontmatter Kiro expects (name + description required)
     let skill_md = format!(
         "---\nname: {}\ndescription: {}\n---\n\n{}\n",
-        comp.name,
+        display_name,
         description,
         body,
     );
@@ -673,7 +686,7 @@ fn convert_command_to_skill(
 
     Ok(ComponentRecord {
         component_type: "skill".into(),
-        name: format!("{}-skill", comp.name),
+        name: display_name,
         source_rel: comp.rel_path.clone(),
         target_path: target.to_string_lossy().to_string(),
         mcp_keys: None,

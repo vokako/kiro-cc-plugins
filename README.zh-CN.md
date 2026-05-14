@@ -56,22 +56,6 @@ xattr -d com.apple.quarantine /Applications/KiroCCPlugins.app
 
 如果你更倾向自己从源码编译，往下看 [架构](#架构) 章节。
 
-## 私有仓库
-
-公开仓库开箱即用。对于私有仓库，工具按以下顺序解析凭据：
-
-1. **`GH_TOKEN` / `GITHUB_TOKEN` 环境变量**（HTTPS）—— CI 场景最方便
-   ```bash
-   export GH_TOKEN=$(gh auth token)
-   kiro-cc-plugins source add https://github.com/me/private-marketplace
-   ```
-2. **系统 git credential helper**（osxkeychain、wincred、manager-core 等）—— 如果你已经能在终端 `git clone` 这个 repo，这里就直接能用。
-3. **SSH agent**，用于 `git@host:owner/repo.git` 形式的 URL。
-4. **`~/.ssh/id_ed25519` / `id_rsa` / `id_ecdsa`**，没有 agent 时的 SSH URL 兜底。
-5. **系统 `git` 子进程兜底** —— 使用你完整的 git 环境（自定义 SSH config、FIDO2 硬件 key、企业级 auth、代理等）。能在终端 `git clone <url>` 的，工具就能拉。
-
-`source update` 和 GUI 的更新检测也走同样的规则。
-
 ## 桌面应用使用指南
 
 ### 第一步：添加源
@@ -133,6 +117,16 @@ kiro-cc-plugins delete feature-dev
 
 ```bash
 kiro-cli chat --agent feature-dev
+```
+
+### 私有仓库
+
+公开仓库开箱即用。对于私有仓库，凭据按这个顺序解析：`GH_TOKEN`/`GITHUB_TOKEN` 环境变量、git credential helper（osxkeychain/wincred/...）、SSH agent、`~/.ssh/id_*` key。libgit2 处理不了的（FIDO2 key、自定义 SSH 配置、企业级 auth）会兜底到系统 `git` 命令——能在终端 `git clone <url>` 的，工具就能拉。
+
+GitHub 最方便的设置：
+
+```bash
+export GH_TOKEN=$(gh auth token)
 ```
 
 ## 命令列表

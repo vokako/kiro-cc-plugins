@@ -57,22 +57,6 @@ Then open the app normally. Alternatively, right-click the app → **Open** → 
 
 If you prefer to build from source instead, see [Architecture](#architecture) below.
 
-## Private repositories
-
-Public repos work out of the box. For private repos, the tool resolves credentials in this order:
-
-1. **`GH_TOKEN` / `GITHUB_TOKEN` env var** (HTTPS) — easiest in CI
-   ```bash
-   export GH_TOKEN=$(gh auth token)
-   kiro-cc-plugins source add https://github.com/me/private-marketplace
-   ```
-2. **System git credential helper** (osxkeychain, wincred, manager-core, …) — if `git clone` already works for that repo on your machine, this just works.
-3. **SSH agent** for `git@host:owner/repo.git` URLs.
-4. **`~/.ssh/id_ed25519` / `id_rsa` / `id_ecdsa`** for SSH URLs without an agent.
-5. **System `git` subprocess fallback** — uses your full git environment (custom SSH config, FIDO2 keys, enterprise auth, proxies). If `git clone <url>` works in your terminal, this tool can clone it too.
-
-Same rules apply to `source update` and the GUI's update-check.
-
 ## Desktop App Guide
 
 ### Step 1: Add Sources
@@ -131,6 +115,16 @@ After installing agents, run them with:
 
 ```bash
 kiro-cli chat --agent feature-dev
+```
+
+### Private repositories
+
+Public repos work out of the box. For private repos, credentials are resolved in this order: `GH_TOKEN`/`GITHUB_TOKEN` env, git credential helper (osxkeychain/wincred/…), SSH agent, `~/.ssh/id_*` keys. Anything libgit2 can't handle (FIDO2 keys, custom SSH config, enterprise auth) falls through to the system `git` binary — if `git clone <url>` works in your terminal, this tool can clone it too.
+
+Easiest setup for GitHub:
+
+```bash
+export GH_TOKEN=$(gh auth token)
 ```
 
 ## Commands

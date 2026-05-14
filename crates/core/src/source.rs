@@ -109,6 +109,18 @@ fn git_head(repo_dir: &Path) -> Result<String> {
 /// Fetch the remote HEAD commit SHA without cloning/fetching objects.
 /// Uses `git ls-remote`-equivalent via libgit2 remote connect.
 pub fn remote_head(url: &str) -> Result<String> {
+    match remote_head_libgit2(url) {
+        Ok(sha) => Ok(sha),
+        Err(libgit2_err) => match shell_git_ls_remote(url) {
+            Ok(sha) => Ok(sha),
+            Err(shell_err) => Err(Error::msg(format!(
+                "ls-remote failed: {libgit2_err}\nfallback: {shell_err}"
+            ))),
+        },
+    }
+}
+
+fn remote_head_libgit2(url: &str) -> Result<String> {
     let mut remote = git2::Remote::create_detached(url)?;
     remote.connect_auth(git2::Direction::Fetch, Some(make_remote_callbacks()), None)?;
     let list = remote.list()?;
@@ -128,7 +140,54 @@ pub fn remote_head(url: &str) -> Result<String> {
     head_sha.or(main_sha).or(master_sha).ok_or_else(|| Error::msg("no HEAD on remote"))
 }
 
+/// Fall back to system `git ls-remote` — uses the user's full git environment
+/// (credential helpers, custom SSH config, FIDO2 keys, enterprise auth, …).
+fn shell_git_ls_remote(url: &str) -> Result<String> {
+    use std::process::Command;
+    let output = match Command::new("git").arg("ls-remote").arg(url).arg("HEAD").output() {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Error::msg("system `git` not found in PATH"));
+        }
+        Err(e) => return Err(Error::msg(format!("failed to spawn git: {e}"))),
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::msg(format!("git ls-remote failed: {}", stderr.trim())));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Output: "<sha>\tHEAD\n"
+    for line in stdout.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 && parts[1] == "HEAD" {
+            let sha = parts[0];
+            if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Ok(sha.to_string());
+            }
+        }
+    }
+    Err(Error::msg("could not parse git ls-remote output"))
+}
+
 fn clone_repo(url: &str, dest: &Path, ref_or_sha: Option<&str>) -> Result<()> {
+    match clone_repo_libgit2(url, dest, ref_or_sha) {
+        Ok(()) => Ok(()),
+        Err(libgit2_err) => {
+            // libgit2 may have left a partial directory; clean before fallback.
+            if dest.exists() {
+                std::fs::remove_dir_all(dest).ok();
+            }
+            match shell_git_clone(url, dest, ref_or_sha) {
+                Ok(()) => Ok(()),
+                Err(shell_err) => Err(Error::msg(format!(
+                    "git clone failed: {libgit2_err}\nfallback: {shell_err}"
+                ))),
+            }
+        }
+    }
+}
+
+fn clone_repo_libgit2(url: &str, dest: &Path, ref_or_sha: Option<&str>) -> Result<()> {
     let mut builder = RepoBuilder::new();
     builder.fetch_options(make_fetch_options());
     if let Some(r) = ref_or_sha {
@@ -136,8 +195,30 @@ fn clone_repo(url: &str, dest: &Path, ref_or_sha: Option<&str>) -> Result<()> {
         builder.branch(r);
     }
     let repo = builder.clone(url, dest)?;
-    // If caller requested a specific SHA, fetch and checkout
     drop(repo);
+    Ok(())
+}
+
+/// Fall back to system `git clone` — uses the user's full git environment.
+fn shell_git_clone(url: &str, dest: &Path, ref_or_sha: Option<&str>) -> Result<()> {
+    use std::process::Command;
+    let mut cmd = Command::new("git");
+    cmd.arg("clone").arg("--depth").arg("1");
+    if let Some(r) = ref_or_sha {
+        cmd.arg("--branch").arg(r);
+    }
+    cmd.arg(url).arg(dest);
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Error::msg("system `git` not found in PATH"));
+        }
+        Err(e) => return Err(Error::msg(format!("failed to spawn git: {e}"))),
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::msg(format!("git clone failed: {}", stderr.trim())));
+    }
     Ok(())
 }
 

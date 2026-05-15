@@ -48,6 +48,113 @@ fn parse_frontmatter(text: &str) -> (Value, String) {
     (Value::Null, text.to_string())
 }
 
+/// Scan a single skill directory (containing `SKILL.md` directly).
+fn scan_skill_dir(
+    skill_dir: &Path,
+    plugin_dir: &Path,
+    allowed: &Option<HashSet<PathBuf>>,
+    components: &mut Vec<ScannedComponent>,
+) -> Result<()> {
+    if let Some(allowed_set) = allowed {
+        if let Ok(canon) = skill_dir.canonicalize() {
+            if !allowed_set.contains(&canon) {
+                return Ok(());
+            }
+        } else {
+            return Ok(());
+        }
+    }
+    let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.exists() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&skill_md)?;
+    let (fm, body) = parse_frontmatter(&text);
+    let name = fm
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| skill_dir.file_name().unwrap().to_string_lossy().into_owned());
+    let rel_path = skill_md
+        .strip_prefix(plugin_dir)
+        .unwrap_or(&skill_md)
+        .to_string_lossy()
+        .to_string();
+    components.push(ScannedComponent {
+        component_type: "skill".into(),
+        name,
+        path: skill_md,
+        rel_path,
+        frontmatter: fm,
+        body,
+    });
+    Ok(())
+}
+
+/// Scan a "skills root" — a directory that either (a) IS a skill (contains
+/// SKILL.md directly) or (b) has each subdirectory as a separate skill.
+fn scan_skills_root(
+    skills_root: &Path,
+    plugin_dir: &Path,
+    allowed: &Option<HashSet<PathBuf>>,
+    components: &mut Vec<ScannedComponent>,
+) -> Result<()> {
+    if !skills_root.is_dir() {
+        return Ok(());
+    }
+    if skills_root.join("SKILL.md").exists() {
+        scan_skill_dir(skills_root, plugin_dir, allowed, components)?;
+    } else {
+        for entry in std::fs::read_dir(skills_root)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                scan_skill_dir(&path, plugin_dir, allowed, components)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Scan markdown component files (commands or agents). The `path` may be
+/// either a `.md` file directly or a directory containing `.md` files.
+fn scan_md_components(
+    path: &Path,
+    plugin_dir: &Path,
+    component_type: &str,
+    components: &mut Vec<ScannedComponent>,
+) -> Result<()> {
+    let entries: Vec<PathBuf> = if path.is_file() {
+        vec![path.to_path_buf()]
+    } else if path.is_dir() {
+        std::fs::read_dir(path)?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("md"))
+            .collect()
+    } else {
+        return Ok(());
+    };
+    for md in entries {
+        let text = std::fs::read_to_string(&md)?;
+        let (fm, body) = parse_frontmatter(&text);
+        let name = fm
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| md.file_stem().unwrap().to_string_lossy().into_owned());
+        let rel_path = md.strip_prefix(plugin_dir).unwrap_or(&md).to_string_lossy().to_string();
+        components.push(ScannedComponent {
+            component_type: component_type.into(),
+            name,
+            path: md,
+            rel_path,
+            frontmatter: fm,
+            body,
+        });
+    }
+    Ok(())
+}
+
 pub fn scan_plugin(plugin_dir: &Path, skill_filter: Option<&[String]>) -> Result<Vec<ScannedComponent>> {
     if !plugin_dir.is_dir() {
         return Ok(Vec::new());
@@ -66,104 +173,58 @@ pub fn scan_plugin(plugin_dir: &Path, skill_filter: Option<&[String]>) -> Result
 
     let mut components = Vec::new();
 
-    // Skills: skills/*/SKILL.md
-    let skills_dir = plugin_dir.join("skills");
-    if skills_dir.is_dir() {
-        for entry in std::fs::read_dir(&skills_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
+    // Read plugin manifest if present — its component path overrides take precedence.
+    let manifest: Option<Value> = std::fs::read_to_string(
+        plugin_dir.join(".claude-plugin").join("plugin.json"),
+    )
+    .ok()
+    .and_then(|t| serde_json::from_str(&t).ok());
+
+    // Resolve a manifest field (string or array of strings) into absolute paths.
+    let resolve_paths = |key: &str| -> Option<Vec<PathBuf>> {
+        manifest.as_ref().and_then(|m| m.get(key)).and_then(|v| {
+            let resolve = |s: &str| plugin_dir.join(s.trim_start_matches("./"));
+            match v {
+                Value::String(s) => Some(vec![resolve(s)]),
+                Value::Array(arr) => Some(
+                    arr.iter().filter_map(|x| x.as_str().map(resolve)).collect(),
+                ),
+                _ => None,
             }
-            if let Some(allowed_set) = &allowed {
-                if let Ok(canon) = path.canonicalize() {
-                    if !allowed_set.contains(&canon) {
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
-            }
-            let skill_md = path.join("SKILL.md");
-            if skill_md.exists() {
-                let text = std::fs::read_to_string(&skill_md)?;
-                let (fm, body) = parse_frontmatter(&text);
-                let name = fm
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-                    .unwrap_or_else(|| path.file_name().unwrap().to_string_lossy().into_owned());
-                let rel_path = skill_md
-                    .strip_prefix(plugin_dir)
-                    .unwrap_or(&skill_md)
-                    .to_string_lossy()
-                    .to_string();
-                components.push(ScannedComponent {
-                    component_type: "skill".into(),
-                    name,
-                    path: skill_md,
-                    rel_path,
-                    frontmatter: fm,
-                    body,
-                });
-            }
-        }
+        })
+    };
+
+    // Skills: manifest override OR default (skills/ + .claude/skills/ fallback).
+    let skill_roots: Vec<PathBuf> = resolve_paths("skills").unwrap_or_else(|| {
+        vec![
+            plugin_dir.join("skills"),
+            plugin_dir.join(".claude").join("skills"),
+        ]
+    });
+    for root in &skill_roots {
+        scan_skills_root(root, plugin_dir, &allowed, &mut components)?;
     }
 
-    // Commands: commands/*.md
-    let cmds_dir = plugin_dir.join("commands");
-    if cmds_dir.is_dir() {
-        for entry in std::fs::read_dir(&cmds_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            let text = std::fs::read_to_string(&path)?;
-            let (fm, body) = parse_frontmatter(&text);
-            let name = fm
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-                .unwrap_or_else(|| path.file_stem().unwrap().to_string_lossy().into_owned());
-            let rel_path = path.strip_prefix(plugin_dir).unwrap_or(&path).to_string_lossy().to_string();
-            components.push(ScannedComponent {
-                component_type: "command".into(),
-                name,
-                path,
-                rel_path,
-                frontmatter: fm,
-                body,
-            });
-        }
+    // Commands: manifest override OR default (commands/ + .claude/commands/).
+    let cmd_paths: Vec<PathBuf> = resolve_paths("commands").unwrap_or_else(|| {
+        vec![
+            plugin_dir.join("commands"),
+            plugin_dir.join(".claude").join("commands"),
+        ]
+    });
+    for path in &cmd_paths {
+        scan_md_components(path, plugin_dir, "command", &mut components)?;
     }
 
-    // Agents: agents/*.md
-    let agents_dir = plugin_dir.join("agents");
-    if agents_dir.is_dir() {
-        for entry in std::fs::read_dir(&agents_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            let text = std::fs::read_to_string(&path)?;
-            let (fm, body) = parse_frontmatter(&text);
-            let name = fm
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-                .unwrap_or_else(|| path.file_stem().unwrap().to_string_lossy().into_owned());
-            let rel_path = path.strip_prefix(plugin_dir).unwrap_or(&path).to_string_lossy().to_string();
-            components.push(ScannedComponent {
-                component_type: "agent".into(),
-                name,
-                path,
-                rel_path,
-                frontmatter: fm,
-                body,
-            });
-        }
+    // Agents: manifest override OR default (agents/ + .claude/agents/).
+    let agent_paths: Vec<PathBuf> = resolve_paths("agents").unwrap_or_else(|| {
+        vec![
+            plugin_dir.join("agents"),
+            plugin_dir.join(".claude").join("agents"),
+        ]
+    });
+    for path in &agent_paths {
+        scan_md_components(path, plugin_dir, "agent", &mut components)?;
     }
 
     // MCP: .mcp.json
